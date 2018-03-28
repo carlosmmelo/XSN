@@ -1261,7 +1261,6 @@ CAmount GetBlockSubsidy(int nPrevHeight, const Consensus::Params& consensusParam
 
     nSubsidy = std::max<CAmount>(nSubsidy, 5) * COIN;
 
-    LogPrintf("height %u reward %d\n", nPrevHeight, nSubsidy);
     CAmount nSuperblockPart = (nPrevHeight > consensusParams.nBudgetPaymentsStartBlock) ? nSubsidy / 10 : 0;
 
     return fSuperblockPartOnly ? nSuperblockPart : nSubsidy - nSuperblockPart;
@@ -3620,7 +3619,10 @@ bool ProcessNewBlock(const CChainParams& chainparams, const CBlock* pblock, bool
 bool TestBlockValidity(CValidationState& state, const CChainParams& chainparams, const CBlock& block, CBlockIndex* pindexPrev, bool fCheckPOW, bool fCheckMerkleRoot)
 {
     AssertLockHeld(cs_main);
-    assert(pindexPrev && pindexPrev == chainActive.Tip());
+    assert(pindexPrev/* && pindexPrev == chainActive.Tip()*/);
+    if(pindexPrev != chainActive.Tip())
+        return error("Tip has changed and does not match prev block");
+
     if (fCheckpointsEnabled && !CheckIndexAgainstCheckpoint(pindexPrev, state, chainparams, block.GetHash()))
         return error("%s: CheckIndexAgainstCheckpoint(): %s", __func__, state.GetRejectReason().c_str());
 

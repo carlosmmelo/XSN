@@ -85,6 +85,7 @@ private:
     WalletFrame *walletFrame;
 
     UnitDisplayStatusBarControl *unitDisplayControl;
+    QLabel* labelStakingIcon;
     QLabel *labelEncryptionIcon;
     QLabel *labelWalletHDStatusIcon;
     QLabel *labelConnectionsIcon;
@@ -204,6 +205,8 @@ public Q_SLOTS:
      */
     void setHDStatus(int hdEnabled);
 
+    void setStakingStatus();
+
     /** Set the encryption status as shown in the UI.
        @param[in] status            current encryption status
        @see WalletModel::EncryptionStatus
@@ -228,6 +231,9 @@ private Q_SLOTS:
     void gotoReceiveCoinsPage();
     /** Switch to send coins page */
     void gotoSendCoinsPage(QString addr = "");
+
+    /** Switch to tpos page */
+    void gotoTPoSPage();
 
     /** Show Sign/Verify Message dialog and switch to sign message tab */
     void gotoSignMessageTab(QString addr = "");

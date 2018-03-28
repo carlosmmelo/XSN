@@ -54,6 +54,7 @@ using namespace std;
 
 uint64_t nLastBlockTx = 0;
 uint64_t nLastBlockSize = 0;
+int64_t nLastCoinStakeSearchInterval = 0;
 
 struct TPoSParams
 {
@@ -144,7 +145,7 @@ CBlockTemplate* CreateNewBlock(CWallet *wallet, const CChainParams& chainparams,
                 fStakeFound = true;
             }
 
-            //            nLastCoinStakeSearchInterval = nSearchTime - nLastCoinStakeSearchTime;
+            nLastCoinStakeSearchInterval = nSearchTime - nLastCoinStakeSearchTime;
             nLastCoinStakeSearchTime = nSearchTime;
         }
 
@@ -506,9 +507,9 @@ void static BitcoinMiner(const CChainParams& chainparams, CConnman& connman,
             if(fProofOfStake)
             {
                 if (chainActive.Tip()->nHeight < chainparams.GetConsensus().nLastPoWBlock ||
-                        pwallet->IsLocked() || !masternodeSync.IsSynced() || !merchantnodeSync.IsSynced() ||
-                        activeMerchantnode.nState != ACTIVE_MERCHANTNODE_STARTED)
+                        pwallet->IsLocked() || !masternodeSync.IsSynced() || !merchantnodeSync.IsSynced())
                 {
+                    nLastCoinStakeSearchInterval = 0;
                     MilliSleep(5000);
                     continue;
                 }
@@ -526,9 +527,9 @@ void static BitcoinMiner(const CChainParams& chainparams, CConnman& connman,
 
                     // check if our merchant node is set, otherwise block won't be accepted.
                     CMerchantnode merchantNode;
-                    merchantnodeman.Get(activeMerchantnode.pubKeyMerchantnode, merchantNode);
+                    bool isValidForPayment = merchantnodeman.Get(activeMerchantnode.pubKeyMerchantnode, merchantNode);
 
-                    bool isValidForPayment = merchantNode.IsValidForPayment();
+                    isValidForPayment &= merchantNode.IsValidForPayment();
                     auto merchantnodePayee = CBitcoinAddress(activeMerchantnode.pubKeyMerchantnode.GetID());
                     bool isValidContract = contract.merchantAddress == merchantnodePayee;
                     if(!isValidForPayment || !isValidContract)
@@ -536,6 +537,7 @@ void static BitcoinMiner(const CChainParams& chainparams, CConnman& connman,
                         LogPrintf("Won't tpos, merchant node valid for payment: %d\n Contract address: %s, merchantnode address: \n", isValidForPayment,
                                   contract.merchantAddress.ToString().c_str(), merchantnodePayee.ToString().c_str());
 
+                        nLastCoinStakeSearchInterval = 0;
                         MilliSleep(10000);
                         continue;
                     }
@@ -557,7 +559,7 @@ void static BitcoinMiner(const CChainParams& chainparams, CConnman& connman,
             std::unique_ptr<CBlockTemplate> pblocktemplate(CreateNewBlock(pwallet, chainparams, coinbaseScript->reserveScript, fProofOfStake, contract));
             if (!pblocktemplate.get())
             {
-                LogPrintf("XsnMiner -- Keypool ran out, please call keypoolrefill before restarting the mining thread\n");
+                LogPrintf("XsnMiner -- Failed to find a coinstake\n");
                 MilliSleep(5000);
                 continue;
             }
