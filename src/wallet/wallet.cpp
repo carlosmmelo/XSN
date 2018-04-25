@@ -339,7 +339,7 @@ void CWallet::FillCoinStakePayments(CMutableTransaction &transaction,
 
     {
         CTxOut &lastTx = transaction.vout.back();
-        if(lastTx.nValue > nStakeSplitThreshold * COIN)
+        if(lastTx.nValue / 2 > nStakeSplitThreshold * COIN)
         {
             lastTx.nValue /= 2;
             transaction.vout.emplace_back(lastTx.nValue, lastTx.scriptPubKey);
@@ -352,6 +352,22 @@ void CWallet::FillCoinStakePayments(CMutableTransaction &transaction,
         transaction.vout.emplace_back(GetStakeReward(blockReward, 100 - tposContract.stakePercentage),
                                       GetScriptForDestination(tposContract.merchantAddress.Get()));
     }
+}
+
+bool CWallet::IsTPoSContractSpent(COutPoint outpoint) const
+{
+    TPoSContract contract;
+    for(const auto &container : {tposOwnerContracts, tposMerchantContracts})
+    {
+        auto it = container.find(outpoint.hash);
+        if(it != std::end(container))
+        {
+            contract = it->second;
+            break;
+        }
+    }
+
+    return contract.IsValid() && TPoSUtils::GetContractCollateralOutpoint(contract) == outpoint;
 }
 
 bool CWallet::GetPubKey(const CKeyID &address, CPubKey& vchPubKeyOut) const
@@ -862,7 +878,6 @@ void CWallet::AddToSpends(const COutPoint& outpoint, const uint256& wtxid)
     range = mapTxSpends.equal_range(outpoint);
     SyncMetaData(range);
 }
-
 
 void CWallet::AddToSpends(const uint256& wtxid)
 {
@@ -1412,6 +1427,9 @@ void CWallet::SyncTransaction(const CTransaction& tx, const CBlock* pblock)
     {
         if (mapWallet.count(txin.prevout.hash))
             mapWallet[txin.prevout.hash].MarkDirty();
+
+        if(mapWallet.count(txin.prevout.hash) && IsTPoSContractSpent(txin.prevout))
+            RemoveTPoSContract(txin.prevout.hash);
     }
 
     fAnonymizableTallyCached = false;
@@ -3935,30 +3953,27 @@ bool CWallet::CreateCoinStake(unsigned int nBits,
     //        return false;
 
     // presstab HyperStake - Initialize as static and don't update the set on every run of CreateCoinStake() in order to lighten resource use
-    StakeCoinsSet setStakeCoins;
+    static StakeCoinsSet setStakeCoins;
     static int nLastStakeSetUpdate = 0;
 
-    //    if (GetTime() - nLastStakeSetUpdate > nStakeSetUpdateTime) {
-    //        setStakeCoins.clear();
-
-
-    CScript scriptPubKey;
-
     bool fIsTPoS = tposContract.IsValid();
+    if (GetTime() - nLastStakeSetUpdate > nStakeSetUpdateTime) {
+        setStakeCoins.clear();
 
-    if(fIsTPoS)
-    {
-        scriptPubKey = GetScriptForDestination(tposContract.tposAddress.Get());
-        if(fDebug)
-            LogPrintf("CreateCoinStake() : finding tpos, contract tposAddress: %s\n", tposContract.tposAddress.ToString().c_str());
+        CScript scriptPubKey;
+        if(fIsTPoS)
+        {
+            scriptPubKey = GetScriptForDestination(tposContract.tposAddress.Get());
+            if(fDebug)
+                LogPrintf("CreateCoinStake() : finding tpos, contract tposAddress: %s\n", tposContract.tposAddress.ToString().c_str());
+        }
+
+        if (!SelectStakeCoins(setStakeCoins, nBalance /*- nReserveBalance*/, scriptPubKey)) {
+            return error("Failed to select coins for staking");
+        }
+
+        nLastStakeSetUpdate = GetTime();
     }
-
-    if (!SelectStakeCoins(setStakeCoins, nBalance /*- nReserveBalance*/, scriptPubKey)) {
-        return error("Failed to select coins for staking");
-    }
-
-    nLastStakeSetUpdate = GetTime();
-    //    }
 
     if (setStakeCoins.empty())
         return error("CreateCoinStake() : No Coins to stake");
