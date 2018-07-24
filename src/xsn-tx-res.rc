@@ -16,8 +16,8 @@ BEGIN
     BEGIN
         BLOCK "040904E4" // U.S. English - multilingual (hex)
         BEGIN
-            VALUE "CompanyName",        "Xsn"
-            VALUE "FileDescription",    "xsn-tx (CLI Xsn transaction editor utility)"
+            VALUE "CompanyName",        "XSN"
+            VALUE "FileDescription",    "xsn-tx (CLI XSN transaction editor utility)"
             VALUE "FileVersion",        VER_FILEVERSION_STR
             VALUE "InternalName",       "xsn-tx"
             VALUE "LegalCopyright",     COPYRIGHT_STR

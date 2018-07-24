@@ -5,10 +5,9 @@
 #ifndef MERCHANTNODE_H
 #define MERCHANTNODE_H
 
-#include "key.h"
-#include "validation.h"
-#include "spork.h"
-#include "base58.h"
+#include <key.h>
+#include <validation.h>
+//#include <spork.h>
 
 class CMerchantnode;
 class CMerchantnodeBroadcast;
@@ -47,7 +46,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(merchantPubKey);
         READWRITE(blockHash);
         READWRITE(sigTime);
@@ -155,7 +154,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         LOCK(cs);
         READWRITE(addr);
         READWRITE(pubKeyMerchantnode);
@@ -279,7 +278,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(addr);
         READWRITE(pubKeyMerchantnode);
         READWRITE(hashTPoSContractTx);
@@ -339,7 +338,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(pubKeyMerchantnode1);
         READWRITE(pubKeyMerchantnode2);
         READWRITE(addr);
@@ -360,11 +359,7 @@ public:
         return ss.GetHash();
     }
 
-    void Relay() const
-    {
-        CInv inv(MSG_MERCHANTNODE_VERIFY, GetHash());
-        g_connman->RelayInv(inv);
-    }
+    void Relay() const;
 };
 
 #endif

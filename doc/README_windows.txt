@@ -1,5 +1,5 @@
-XSN Core 0.12.1
-=====================
+XSN Core
+=============
 
 Intro
 -----
@@ -17,3 +17,7 @@ XSN Core is the original XSN client and it builds the backbone of the network.
 However, it downloads and stores the entire history of XSN transactions;
 depending on the speed of your computer and network connection, the synchronization
 process can take anywhere from a few hours to a day or more.
+
+See the xsn wiki at:
+  https://en.xsn.it/wiki/Main_Page
+for more help and information.

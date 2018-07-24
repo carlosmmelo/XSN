@@ -1,7 +1,7 @@
 Description
 ------------
 
-This directory contains data-driven tests for various aspects of Xsn.
+This directory contains data-driven tests for various aspects of XSN.
 
 License
 --------

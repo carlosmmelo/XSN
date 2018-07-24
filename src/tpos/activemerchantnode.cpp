@@ -2,20 +2,21 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "activemerchantnode.h"
-#include "merchantnode.h"
-#include "merchantnode-sync.h"
-#include "merchantnodeman.h"
-#include "protocol.h"
+#include <tpos/activemerchantnode.h>
+#include <tpos/merchantnode.h>
+#include <tpos/merchantnode-sync.h>
+#include <tpos/merchantnodeman.h>
+#include <protocol.h>
+#include <utilstrencodings.h>
 
 // Keep track of the active Merchantnode
 CActiveMerchantnode activeMerchantnode;
 
 void CActiveMerchantnode::ManageState(CConnman& connman)
 {
-    LogPrint("merchantnode", "CActiveMerchantnode::ManageState -- Start\n");
+    LogPrint(BCLog::MERCHANTNODE, "CActiveMerchantnode::ManageState -- Start\n");
     if(!fMerchantNode) {
-        LogPrint("merchantnode", "CActiveMerchantnode::ManageState -- Not a masternode, returning\n");
+        LogPrint(BCLog::MERCHANTNODE, "CActiveMerchantnode::ManageState -- Not a masternode, returning\n");
         return;
     }
 
@@ -29,7 +30,7 @@ void CActiveMerchantnode::ManageState(CConnman& connman)
         nState = ACTIVE_MERCHANTNODE_INITIAL;
     }
 
-    LogPrint("merchantnode", "CActiveMerchantnode::ManageState -- status = %s, type = %s, pinger enabled = %d\n", GetStatus(), GetTypeString(), fPingerEnabled);
+    LogPrint(BCLog::MERCHANTNODE, "CActiveMerchantnode::ManageState -- status = %s, type = %s, pinger enabled = %d\n", GetStatus(), GetTypeString(), fPingerEnabled);
 
     if(eType == MERCHANTNODE_UNKNOWN) {
         ManageStateInitial(connman);
@@ -83,12 +84,12 @@ std::string CActiveMerchantnode::GetTypeString() const
 bool CActiveMerchantnode::SendMerchantnodePing(CConnman& connman)
 {
     if(!fPingerEnabled) {
-        LogPrint("merchantnode", "CActiveMerchantnode::SendMerchantnodePing -- %s: masternode ping service is disabled, skipping...\n", GetStateString());
+        LogPrint(BCLog::MERCHANTNODE, "CActiveMerchantnode::SendMerchantnodePing -- %s: masternode ping service is disabled, skipping...\n", GetStateString());
         return false;
     }
 
     if(!merchantnodeman.Has(pubKeyMerchantnode)) {
-        strNotCapableReason = "Merchantnode not in masternode list";
+        strNotCapableReason = "Merchantnode not in merchantnode list";
         nState = ACTIVE_MERCHANTNODE_NOT_CAPABLE;
         LogPrintf("CActiveMerchantnode::SendMerchantnodePing -- %s: %s\n", GetStateString(), strNotCapableReason);
         return false;
@@ -111,7 +112,7 @@ bool CActiveMerchantnode::SendMerchantnodePing(CConnman& connman)
 
     merchantnodeman.SetMerchantnodeLastPing(pubKeyMerchantnode, mnp);
 
-    LogPrintf("CActiveMerchantnode::SendMerchantnodePing -- Relaying ping, collateral=%s\n", HexStr(pubKeyMerchantnode.Raw()));
+    LogPrintf("%s -- Relaying ping, collateral=%s\n", __func__, HexStr(pubKeyMerchantnode.GetID().ToString()));
     mnp.Relay(connman);
 
     return true;
@@ -127,7 +128,7 @@ bool CActiveMerchantnode::UpdateSentinelPing(int version)
 
 void CActiveMerchantnode::ManageStateInitial(CConnman& connman)
 {
-    LogPrint("merchantnode", "CActiveMerchantnode::ManageStateInitial -- status = %s, type = %s, pinger enabled = %d\n", GetStatus(), GetTypeString(), fPingerEnabled);
+    LogPrint(BCLog::MERCHANTNODE, "CActiveMerchantnode::ManageStateInitial -- status = %s, type = %s, pinger enabled = %d\n", GetStatus(), GetTypeString(), fPingerEnabled);
 
     // Check that our local network configuration is correct
     if (!fListen) {
@@ -143,11 +144,10 @@ void CActiveMerchantnode::ManageStateInitial(CConnman& connman)
     if(!fFoundLocal) {
         bool empty = true;
         // If we have some peers, let's try to find our local address from one of them
-        connman.ForEachNodeContinueIf(CConnman::AllNodes, [&fFoundLocal, &empty, this](CNode* pnode) {
+        connman.ForEachNode([&fFoundLocal, &empty, this](CNode* pnode) {
             empty = false;
-            if (pnode->addr.IsIPv4())
+            if (!fFoundLocal && pnode->addr.IsIPv4())
                 fFoundLocal = GetLocal(service, &pnode->addr) && CMerchantnode::IsValidNetAddr(service);
-            return !fFoundLocal;
         });
         // nothing and no live connections, can't do anything for now
         if (empty) {
@@ -165,7 +165,8 @@ void CActiveMerchantnode::ManageStateInitial(CConnman& connman)
         return;
     }
 
-    int mainnetDefaultPort = Params(CBaseChainParams::MAIN).GetDefaultPort();
+    auto mainChainParams = CreateChainParams(CBaseChainParams::MAIN);
+    int mainnetDefaultPort = mainChainParams->GetDefaultPort();
     if(Params().NetworkIDString() == CBaseChainParams::MAIN) {
         if(service.GetPort() != mainnetDefaultPort) {
             nState = ACTIVE_MERCHANTNODE_NOT_CAPABLE;
@@ -182,7 +183,7 @@ void CActiveMerchantnode::ManageStateInitial(CConnman& connman)
 
     LogPrintf("CActiveMerchantnode::ManageStateInitial -- Checking inbound connection to '%s'\n", service.ToString());
 
-    if(!connman.ConnectNode(CAddress(service, NODE_NETWORK), NULL, true)) {
+    if(!connman.OpenMerchantnodeConnection(CAddress(service, NODE_NETWORK))) {
         nState = ACTIVE_MERCHANTNODE_NOT_CAPABLE;
         strNotCapableReason = "Could not connect to " + service.ToString();
         LogPrintf("CActiveMerchantnode::ManageStateInitial -- %s: %s\n", GetStateString(), strNotCapableReason);
@@ -192,12 +193,12 @@ void CActiveMerchantnode::ManageStateInitial(CConnman& connman)
     // Default to REMOTE
     eType = MERCHANTNODE_REMOTE;
 
-    LogPrint("merchantnode", "CActiveMerchantnode::ManageStateInitial -- End status = %s, type = %s, pinger enabled = %d\n", GetStatus(), GetTypeString(), fPingerEnabled);
+    LogPrint(BCLog::MERCHANTNODE, "CActiveMerchantnode::ManageStateInitial -- End status = %s, type = %s, pinger enabled = %d\n", GetStatus(), GetTypeString(), fPingerEnabled);
 }
 
 void CActiveMerchantnode::ManageStateRemote()
 {
-    LogPrint("merchantnode", "CActiveMerchantnode::ManageStateRemote -- Start status = %s, type = %s, pinger enabled = %d, pubKeyMerchantnode.GetID() = %s\n",
+    LogPrint(BCLog::MERCHANTNODE, "CActiveMerchantnode::ManageStateRemote -- Start status = %s, type = %s, pinger enabled = %d, pubKeyMerchantnode.GetID() = %s\n",
              GetStatus(), GetTypeString(), fPingerEnabled, pubKeyMerchantnode.GetID().ToString());
 
     merchantnodeman.CheckMerchantnode(pubKeyMerchantnode, true);

@@ -4,16 +4,16 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #if defined(HAVE_CONFIG_H)
-#include "config/xsn-config.h"
+#include <config/xsn-config.h>
 #endif
 
-#include "util.h"
-#include "uritests.h"
-#include "compattests.h"
-#include "trafficgraphdatatests.h"
+#include <util.h>
+#include <test/uritests.h>
+#include <test/compattests.h>
+#include <test/trafficgraphdatatests.h>
 
 #ifdef ENABLE_WALLET
-#include "paymentservertests.h"
+#include <test/paymentservertests.h>
 #endif
 
 #include <QCoreApplication>

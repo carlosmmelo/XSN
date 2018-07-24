@@ -10,14 +10,14 @@ can be found in the contrib/init folder.
     contrib/init/xsnd.conf:       Upstart service configuration file
     contrib/init/xsnd.init:       CentOS compatible SysV style init script
 
-1. Service User
+Service User
 ---------------------------------
 
-All three Linux startup configurations assume the existence of a "xsncore" user
+All three Linux startup configurations assume the existence of a "xsn" user
 and group.  They must be created before attempting to use these scripts.
 The OS X configuration assumes xsnd will be set up for the current user.
 
-2. Configuration
+Configuration
 ---------------------------------
 
 At a bare minimum, xsnd requires that the rpcpassword setting be set
@@ -46,36 +46,36 @@ relative to the data directory. `wallet` *only* supports relative paths.
 For an example configuration file that describes the configuration settings,
 see `contrib/debian/examples/xsn.conf`.
 
-3. Paths
+Paths
 ---------------------------------
 
-3a) Linux
+### Linux
 
 All three configurations assume several paths that might need to be adjusted.
 
 Binary:              `/usr/bin/xsnd`  
-Configuration file:  `/etc/xsncore/xsn.conf`  
+Configuration file:  `/etc/xsn/xsn.conf`  
 Data directory:      `/var/lib/xsnd`  
 PID file:            `/var/run/xsnd/xsnd.pid` (OpenRC and Upstart) or `/var/lib/xsnd/xsnd.pid` (systemd)  
 Lock file:           `/var/lock/subsys/xsnd` (CentOS)  
 
 The configuration file, PID directory (if applicable) and data directory
-should all be owned by the xsncore user and group.  It is advised for security
+should all be owned by the xsn user and group.  It is advised for security
 reasons to make the configuration file and data directory only readable by the
-xsncore user and group.  Access to xsn-cli and other xsnd rpc clients
+xsn user and group.  Access to xsn-cli and other xsnd rpc clients
 can then be controlled by group membership.
 
-3b) Mac OS X
+### Mac OS X
 
 Binary:              `/usr/local/bin/xsnd`  
-Configuration file:  `~/Library/Application Support/XSNCore/xsn.conf`  
-Data directory:      `~/Library/Application Support/XSNCore`
-Lock file:           `~/Library/Application Support/XSNCore/.lock`
+Configuration file:  `~/Library/Application Support/XSN/xsn.conf`  
+Data directory:      `~/Library/Application Support/XSN`  
+Lock file:           `~/Library/Application Support/XSN/.lock`  
 
-4. Installing Service Configuration
+Installing Service Configuration
 -----------------------------------
 
-4a) systemd
+### systemd
 
 Installing this .service file consists of just copying it to
 /usr/lib/systemd/system directory, followed by the command
@@ -84,14 +84,18 @@ Installing this .service file consists of just copying it to
 To test, run `systemctl start xsnd` and to enable for system startup run
 `systemctl enable xsnd`
 
-4b) OpenRC
+NOTE: When installing for systemd in Debian/Ubuntu the .service file needs to be copied to the /lib/systemd/system directory instead.
+
+### OpenRC
 
 Rename xsnd.openrc to xsnd and drop it in /etc/init.d.  Double
 check ownership and permissions and make it executable.  Test it with
 `/etc/init.d/xsnd start` and configure it to run on startup with
 `rc-update add xsnd`
 
-4c) Upstart (for Debian/Ubuntu based distributions)
+### Upstart (for Debian/Ubuntu based distributions)
+
+Upstart is the default init system for Debian/Ubuntu versions older than 15.04. If you are using version 15.04 or newer and haven't manually configured upstart you should follow the systemd instructions instead.
 
 Drop xsnd.conf in /etc/init.  Test by running `service xsnd start`
 it will automatically start on reboot.
@@ -99,15 +103,15 @@ it will automatically start on reboot.
 NOTE: This script is incompatible with CentOS 5 and Amazon Linux 2014 as they
 use old versions of Upstart and do not supply the start-stop-daemon utility.
 
-4d) CentOS
+### CentOS
 
 Copy xsnd.init to /etc/init.d/xsnd. Test by running `service xsnd start`.
 
 Using this script, you can adjust the path and flags to the xsnd program by
-setting the XSND and FLAGS environment variables in the file
+setting the BITCOIND and FLAGS environment variables in the file
 /etc/sysconfig/xsnd. You can also use the DAEMONOPTS environment variable here.
 
-4e) Mac OS X
+### Mac OS X
 
 Copy org.xsn.xsnd.plist into ~/Library/LaunchAgents. Load the launch agent by
 running `launchctl load ~/Library/LaunchAgents/org.xsn.xsnd.plist`.
@@ -116,9 +120,9 @@ This Launch Agent will cause xsnd to start whenever the user logs in.
 
 NOTE: This approach is intended for those wanting to run xsnd as the current user.
 You will need to modify org.xsn.xsnd.plist if you intend to use it as a
-Launch Daemon with a dedicated xsncore user.
+Launch Daemon with a dedicated xsn user.
 
-5. Auto-respawn
+Auto-respawn
 -----------------------------------
 
 Auto respawning is currently only configured for Upstart and systemd.

@@ -3,10 +3,10 @@
 
 #include <string>
 #include <memory>
-#include "amount.h"
-#include "script/standard.h"
-#include "pubkey.h"
-#include "base58.h"
+#include <amount.h>
+#include <script/standard.h>
+#include <pubkey.h>
+#include <key_io.h>
 
 class CWallet;
 class CWalletTx;
@@ -17,7 +17,7 @@ class CValidationState;
 struct TPoSContract
 {
     TPoSContract() = default;
-    TPoSContract(CTransaction tx,
+    TPoSContract(CTransactionRef tx,
                  CBitcoinAddress merchantAddress,
                  CBitcoinAddress tposAddress,
                  short stakePercentage,
@@ -25,9 +25,9 @@ struct TPoSContract
 
     bool IsValid() const;
 
-    static TPoSContract FromTPoSContractTx(const CTransaction &tx);
+    static TPoSContract FromTPoSContractTx(const CTransactionRef tx);
 
-    CTransaction rawTx;
+    CTransactionRef rawTx;
     CBitcoinAddress merchantAddress;
     CBitcoinAddress tposAddress;
     std::vector<unsigned char> vchSignature;
@@ -43,29 +43,31 @@ public:
     static std::string PrepareTPoSExportBlock(std::string content);
     static std::string ParseTPoSExportBlock(std::string block);
 
-    static bool IsTPoSContract(const CTransaction &tx);
+    static bool IsTPoSContract(const CTransactionRef &tx);
 
 #ifdef ENABLE_WALLET
     static bool GetTPoSPayments(const CWallet *wallet,
-                                const CWalletTx& wtx,
+                                const CTransactionRef &tx,
                                 CAmount &stakeAmount,
                                 CAmount &commissionAmount,
-                                CBitcoinAddress &tposAddress, CBitcoinAddress &merchantAddress);
+                                CTxDestination &tposAddress, CTxDestination &merchantAddress);
 
-    static bool IsTPoSOwnerContract(CWallet *wallet, const CTransaction &tx);
-    static bool IsTPoSMerchantContract(CWallet *wallet, const CTransaction &tx);
+    static bool IsTPoSOwnerContract(CWallet *wallet, const CTransactionRef &tx);
+    static bool IsTPoSMerchantContract(CWallet *wallet, const CTransactionRef &tx);
 
-    static std::unique_ptr<CWalletTx> CreateTPoSTransaction(CWallet *wallet,
-                                                            CReserveKey &reserveKey,
-                                                            const CBitcoinAddress &tposAddress,
-                                                            const CBitcoinAddress &merchantAddress,
-                                                            int merchantCommission,
-                                                            std::string &strError);
+    static bool CreateTPoSTransaction(CWallet *wallet,
+                                      CTransactionRef &transactionOut,
+                                      CReserveKey &reserveKey,
+                                      const CBitcoinAddress &tposAddress,
+                                      const CBitcoinAddress &merchantAddress,
+                                      int merchantCommission,
+                                      std::string &strError);
 
-    static std::unique_ptr<CWalletTx> CreateCancelContractTransaction(CWallet *wallet,
-                                                                      CReserveKey &reserveKey,
-                                                                      const TPoSContract &contract,
-                                                                      std::string &strError);
+    static bool CreateCancelContractTransaction(CWallet *wallet,
+                                                CTransactionRef &txOut,
+                                                CReserveKey &reserveKey,
+                                                const TPoSContract &contract,
+                                                std::string &strError);
 
     static COutPoint GetContractCollateralOutpoint(const TPoSContract &contract);
     static bool CheckContract(const uint256 &hashContractTx, TPoSContract &contract, bool fCheckSignature, bool fCheckContractOutpoint);

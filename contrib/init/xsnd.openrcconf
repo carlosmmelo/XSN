@@ -1,7 +1,7 @@
 # /etc/conf.d/xsnd: config file for /etc/init.d/xsnd
 
 # Config file location
-#BITCOIND_CONFIGFILE="/etc/xsncore/xsn.conf"
+#BITCOIND_CONFIGFILE="/etc/xsn/xsn.conf"
 
 # What directory to write pidfile to?  (created and owned by $BITCOIND_USER)
 #BITCOIND_PIDDIR="/var/run/xsnd"
@@ -13,8 +13,8 @@
 #BITCOIND_DATADIR="/var/lib/xsnd"
 
 # User and group to own xsnd process
-#BITCOIND_USER="xsncore"
-#BITCOIND_GROUP="xsncore"
+#BITCOIND_USER="xsn"
+#BITCOIND_GROUP="xsn"
 
 # Path to xsnd executable
 #BITCOIND_BIN="/usr/bin/xsnd"
@@ -23,9 +23,9 @@
 #BITCOIND_NICE=0
 
 # Additional options (avoid -conf and -datadir, use flags above)
-BITCOIND_OPTS="-disablewallet"
+#BITCOIND_OPTS=""
 
-# The timeout in seconds OpenRC will wait for bitcoind to terminate
+# The timeout in seconds OpenRC will wait for xsnd to terminate
 # after a SIGTERM has been raised.
 # Note that this will be mapped as argument to start-stop-daemon's
 # '--retry' option, which means you can specify a retry schedule

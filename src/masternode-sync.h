@@ -4,8 +4,8 @@
 #ifndef MASTERNODE_SYNC_H
 #define MASTERNODE_SYNC_H
 
-#include "chain.h"
-#include "net.h"
+#include <chain.h>
+#include <net.h>
 
 #include <univalue.h>
 
@@ -72,7 +72,7 @@ public:
     void Reset();
     void SwitchToNextAsset(CConnman& connman);
 
-    void ProcessMessage(CNode* pfrom, std::string& strCommand, CDataStream& vRecv);
+    void ProcessMessage(CNode* pfrom, const std::string &strCommand, CDataStream& vRecv);
     void ProcessTick(CConnman& connman);
 
     void AcceptedBlockHeader(const CBlockIndex *pindexNew);

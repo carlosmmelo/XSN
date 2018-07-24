@@ -1,46 +1,22 @@
-XSN Core integration/staging repository
-===============================
-All software, including wallets, are experimental in nature and come with no guarantee whatsoever. Users may download and use them at their own risk. XSN-core, contributing developers, and any affiliates take no responsibility for the technical functionalities or the lack thereof.
-===============================
+XSN Core integration/staging tree
+=====================================
 
-[UNIX Guide](https://github.com/X9Developers/XSN/blob/master/doc/build-unix.md) build from source
+[![Build Status](https://api.travis-ci.org/X9Developers/XSN.svg?branch=master)](https://travis-ci.org/X9Developers/XSN)
 
-XSN Coin Features
+https://xsncore.org
 
-- Anonymized transactions using our "Stealth Mode"
-- Fast transactions or Flash Send.
-- Decentralized voting providing for consensus based advancement
-- Trustless Proof of Stake (TPoS) - Allow a 3rd party to stake your XSN with zero trust involved
+What is XSN?
+----------------
+
+XSN is an experimental digital currency that enables instant payments to
+anyone, anywhere in the world. XSN uses peer-to-peer technology to operate
+with no central authority: managing transactions and issuing money are carried
+out collectively by the network. XSN Core is the name of open source
+software which enables the use of this currency.
 
 For more information, as well as an immediately useable, binary version of
-the XSN Core software, see https://xsncoin.io/
-
-### Coin Specs
-<table>
-<tr><td>Algo</td><td>X11</td></tr>
-<tr><td>Block Time</td><td>60 Seconds</td></tr>
-<tr><td>Difficulty Retargeting</td><td>40 minutes</td></tr>
-<tr><td>Premine</td><td>76,500,000 XSN</td></tr>
-</table>
-
-
-### PoS Rewards Breakdown
-
-<table>
-<th>Phase</th><th>Block Height</th><th>Reward</th><th>Masternodes & Stakers</th><th>Budget</th>
-<tr><td>Phase 1</td><td>1-20000</td><td>0 XSN</td><td>90% (0 XSN)</td><td>10% (0 XSN)</td></tr>
-<tr><td>Phase 2</td><td>20001-63200</td><td>50 XSN</td><td>90% (45 XSN)</td><td>10% (5 XSN)</td></tr>
-<tr><td>Phase 2</td><td>63201-106400</td><td>45 XSN</td><td>90% (40.5 XSN)</td><td>10% (4.5 XSN)</td></tr>
-<tr><td>Phase 3</td><td>106401-149600</td><td>40 XSN</td><td>90% (36 XSN)</td><td>10% (4 XSN)</td></tr>
-<tr><td>Phase 4</td><td>149601-192800</td><td>35 XSN</td><td>90% (31.5 XSN)</td><td>10% (3.5 XSN)</td></tr>
-<tr><td>Phase 5</td><td>192801-236000</td><td>30 XSN</td><td>90% (27 XSN)</td><td>10% (3 XSN)</td></tr>
-<tr><td>Phase 6</td><td>236001-279200</td><td>25 XSN</td><td>90% (22.5 XSN)</td><td>10% (2.5 XSN)</td></tr>
-<tr><td>Phase 7</td><td>279201-322400</td><td>20 XSN</td><td>90% (18 XSN)</td><td>10% (2 XSN)</td></tr>
-<tr><td>Phase 8</td><td>322401-365600</td><td>15 XSN</td><td>90% (13.5 XSN)</td><td>10% (1.5 XSN)</td></tr>
-<tr><td>Phase 9</td><td>365601-408800</td><td>10 XSN</td><td>90% (9 XSN)</td><td>10% (1 XSN)</td></tr>
-<tr><td>Phase X</td><td>408801-Infinite</td><td>5 XSN</td><td>90% (4.5 XSN)</td><td>10% (0.5 XSN)</td></tr>
-</table>
-
+the XSN Core software, see https://xsn.org/en/download, or read the
+[original whitepaper](https://xsncore.org/xsn.pdf).
 
 License
 -------
@@ -48,3 +24,53 @@ License
 XSN Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
 information or see https://opensource.org/licenses/MIT.
 
+Development Process
+-------------------
+
+The `master` branch is regularly built and tested, but is not guaranteed to be
+completely stable. [Tags](https://github.com/xsn/xsn/tags) are created
+regularly to indicate new official, stable release versions of XSN Core.
+
+The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Testing
+-------
+
+Testing and code review is the bottleneck for development; we get more pull
+requests than we can review and test on short notice. Please be patient and help out by testing
+other people's pull requests, and remember this is a security-critical project where any mistake might cost people
+lots of money.
+
+### Automated Testing
+
+Developers are strongly encouraged to write [unit tests](src/test/README.md) for new code, and to
+submit new unit tests for old code. Unit tests can be compiled and run
+(assuming they weren't disabled in configure) with: `make check`. Further details on running
+and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
+
+There are also [regression and integration tests](/test), written
+in Python, that are run automatically on the build server.
+These tests can be run (if the [test dependencies](/test) are installed) with: `test/functional/test_runner.py`
+
+The Travis CI system makes sure that every pull request is built for Windows, Linux, and OS X, and that unit/sanity tests are run automatically.
+
+### Manual Quality Assurance (QA) Testing
+
+Changes should be tested by somebody other than the developer who wrote the
+code. This is especially important for large or high-risk changes. It is useful
+to add a test plan to the pull request description if testing the changes is
+not straightforward.
+
+Translations
+------------
+
+Changes to translations as well as new translations can be submitted to
+[XSN Core's Transifex page](https://www.transifex.com/projects/p/xsn/).
+
+Translations are periodically pulled from Transifex and merged into the git repository. See the
+[translation process](doc/translation_process.md) for details on how this works.
+
+**Important**: We do not accept translation changes as GitHub pull requests because the next
+pull from Transifex would automatically overwrite them again.
+
+Translators should also subscribe to the [mailing list](https://groups.google.com/forum/#!forum/xsn-translators).

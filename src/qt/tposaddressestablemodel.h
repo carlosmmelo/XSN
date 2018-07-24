@@ -5,22 +5,27 @@
 #include <vector>
 #include <QString>
 #include <string>
-#include "amount.h"
-#include "ui_interface.h"
-#include "base58.h"
+#include <amount.h>
+#include <ui_interface.h>
+#include <base58.h>
+#include <key_io.h>
 
-class CWallet;
 class OptionsModel;
 class TPoSContract;
+class WalletModel;
+
+namespace interfaces {
+class Handler;
+class Wallet;
+}
 
 class TPoSAddressesTableModel : public QAbstractTableModel
 {
     Q_OBJECT
 
 public:
-    explicit TPoSAddressesTableModel(CWallet* wallet,
-                                     OptionsModel *optionsModel,
-                                     QObject *parent = nullptr);
+    explicit TPoSAddressesTableModel(WalletModel *parent,
+                                     OptionsModel *optionsModel);
 
     ~TPoSAddressesTableModel();
 
@@ -57,14 +62,14 @@ private:
 private:
     void refreshModel();
     void updateAmountColumnTitle();
-    void NotifyTransactionChanged(CWallet* wallet, const uint256& hash, ChangeType status);
+    void NotifyTransactionChanged(const uint256& hash, ChangeType status);
     QString formatCommissionAmount(CAmount commissionAmount, int percentage) const;
     QString formatAmount(CAmount amountAsStr) const;
     Entry GetAmountForAddress(CBitcoinAddress address);
 
 private:
-
-    CWallet *wallet;
+    std::unique_ptr<interfaces::Handler> transactionChangedHandler;
+    WalletModel *walletModel;
     OptionsModel *optionsModel;
     const std::map<uint256, TPoSContract> &tposContracts;
     std::map<CBitcoinAddress, Entry> amountsMap;
