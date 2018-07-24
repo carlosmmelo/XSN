@@ -2,34 +2,37 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "tpos/activemerchantnode.h"
-#include "base58.h"
-#include "init.h"
-#include "netbase.h"
-#include "validation.h"
-#include "tpos/merchantnode-sync.h"
-#include "tpos/merchantnodeman.h"
-#include "tpos/merchantnode.h"
-#include "tpos/merchantnodeconfig.h"
-#include "rpc/server.h"
-#include "util.h"
-#include "utilmoneystr.h"
-#include "wallet/wallet.h"
-#include "core_io.h"
+#include <tpos/activemerchantnode.h>
+#include <key_io.h>
+#include <init.h>
+#include <netbase.h>
+#include <validation.h>
+#include <tpos/merchantnode-sync.h>
+#include <tpos/merchantnodeman.h>
+#include <tpos/merchantnode.h>
+#include <tpos/merchantnodeconfig.h>
+#include <rpc/server.h>
+#include <util.h>
+#include <utilmoneystr.h>
+#ifdef ENABLE_WALLET
+#include <wallet/wallet.h>
+#endif
+#include <core_io.h>
+#include <key_io.h>
 
 #include <fstream>
 #include <iomanip>
 #include <univalue.h>
 
-UniValue merchantsync(const UniValue& params, bool fHelp)
+static UniValue merchantsync(const JSONRPCRequest& request)
 {
-    if (fHelp || params.size() != 1)
+    if (request.fHelp || request.params.size() != 1)
         throw runtime_error(
                 "merchantsync [status|next|reset]\n"
                 "Returns the sync status, updates to the next step or resets it entirely.\n"
                 );
 
-    std::string strMode = params[0].get_str();
+    std::string strMode = request.params[0].get_str();
 
     if(strMode == "status") {
         UniValue objStatus(UniValue::VOBJ);
@@ -60,7 +63,7 @@ UniValue merchantsync(const UniValue& params, bool fHelp)
 }
 
 
-UniValue ListOfMerchantNodes(const UniValue& params, std::set<CService> myMerchantNodesIps, bool showOnlyMine)
+static UniValue ListOfMerchantNodes(const UniValue& params, std::set<CService> myMerchantNodesIps, bool showOnlyMine)
 {
     std::string strMode = "status";
     std::string strFilter = "";
@@ -78,7 +81,7 @@ UniValue ListOfMerchantNodes(const UniValue& params, std::set<CService> myMercha
         }
 
         CMerchantnode mn = mnpair.second;
-        std::string strOutpoint = HexStr(mnpair.first.Raw());
+        std::string strOutpoint = HexStr(mnpair.first.GetID().ToString());
         if (strMode == "activeseconds") {
             if (strFilter !="" && strOutpoint.find(strFilter) == std::string::npos) continue;
             obj.push_back(Pair(strOutpoint, (int64_t)(mn.lastPing.sigTime - mn.sigTime)));
@@ -109,7 +112,6 @@ UniValue ListOfMerchantNodes(const UniValue& params, std::set<CService> myMercha
                           CBitcoinAddress(mn.pubKeyMerchantnode.GetID()).ToString() << " " <<
                           (int64_t)mn.lastPing.sigTime << " " << std::setw(8) <<
                           (int64_t)(mn.lastPing.sigTime - mn.sigTime) << " " <<
-                          SafeIntVersionToString(mn.lastPing.nSentinelVersion) << " "  <<
                           (mn.lastPing.fSentinelIsCurrent ? "current" : "expired") << " " <<
                           mn.addr.ToString();
             std::string strInfo = streamInfo.str();
@@ -143,225 +145,15 @@ UniValue ListOfMerchantNodes(const UniValue& params, std::set<CService> myMercha
     return obj;
 }
 
-
-UniValue merchantnode(const UniValue& params, bool fHelp)
-{
-    std::string strCommand;
-    if (params.size() >= 1) {
-        strCommand = params[0].get_str();
-    }
-
-#ifdef ENABLE_WALLET
-    if (strCommand == "start-many")
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "DEPRECATED, please use start-all instead");
-#endif // ENABLE_WALLET
-
-    if (fHelp  ||
-            (
-            #ifdef ENABLE_WALLET
-                strCommand != "start-alias" && strCommand != "start-all" && strCommand != "start-missing" &&
-                strCommand != "start-disabled" && strCommand != "outputs" &&
-            #endif // ENABLE_WALLET
-                strCommand != "list" && strCommand != "list-conf" && strCommand != "list-mine" && strCommand != "count" &&
-                strCommand != "debug" && strCommand != "current" && strCommand != "winner" && strCommand != "winners" && strCommand != "genkey" &&
-                strCommand != "connect" && strCommand != "status"))
-        throw std::runtime_error(
-                "merchantnode \"command\"...\n"
-                "Set of commands to execute merchantnode related actions\n"
-                "\nArguments:\n"
-                "1. \"command\"        (string or set of strings, required) The command to execute\n"
-                "\nAvailable commands:\n"
-                "  count        - Print number of all known merchantnodes (optional: 'ps', 'enabled', 'all', 'qualify')\n"
-                "  current      - Print info on current merchantnode winner to be paid the next block (calculated locally)\n"
-                "  genkey       - Generate new merchantnodeprivkey\n"
-            #ifdef ENABLE_WALLET
-                "  outputs      - Print merchantnode compatible outputs\n"
-                "  start-alias  - Start single remote merchantnode by assigned alias configured in merchantnode.conf\n"
-                "  start-<mode> - Start remote merchantnodes configured in merchantnode.conf (<mode>: 'all', 'missing', 'disabled')\n"
-            #endif // ENABLE_WALLET
-                "  status       - Print merchantnode status information\n"
-                "  list         - Print list of all known merchantnodes (see merchantnodelist for more info)\n"
-                "  list-conf    - Print merchantnode.conf in JSON format\n"
-                "  list-mine    - Print own nodes"
-                "  winner       - Print info on next merchantnode winner to vote for\n"
-                "  winners      - Print list of merchantnode winners\n"
-                );
-
-    if (strCommand == "list")
-    {
-        UniValue newParams(UniValue::VARR);
-        // forward params but skip "list"
-        for (unsigned int i = 1; i < params.size(); i++) {
-            newParams.push_back(params[i]);
-        }
-        return merchantnodelist(newParams, fHelp);
-    }
-
-    if(strCommand == "list-mine")
-    {
-        UniValue newParams(UniValue::VARR);
-        // forward params but skip "list-mine"
-        for (unsigned int i = 1; i < params.size(); i++) {
-            newParams.push_back(params[i]);
-        }
-
-        std::set<CService> myMerchantNodesIps;
-        for(auto &&mne : merchantnodeConfig.getEntries())
-        {
-            CService service;
-            Lookup(mne.getIp().c_str(), service, 0, false);
-
-            myMerchantNodesIps.insert(service);
-        }
-
-        return  ListOfMerchantNodes(newParams, myMerchantNodesIps, true);
-    }
-
-    if (strCommand == "list-conf")
-    {
-        UniValue resultObj(UniValue::VOBJ);
-
-        for(auto &&mne : merchantnodeConfig.getEntries())
-        {
-            CMerchantnode mn;
-            CBitcoinSecret privKey;
-            privKey.SetString(mne.getMerchantPrivKey());
-            CPubKey pubKey = privKey.GetKey().GetPubKey();
-            bool fFound = merchantnodeman.Get(pubKey, mn);
-
-            std::string strStatus = fFound ? mn.GetStatus() : "MISSING";
-
-            UniValue mnObj(UniValue::VOBJ);
-            mnObj.push_back(Pair("alias", mne.getAlias()));
-            mnObj.push_back(Pair("address", mne.getIp()));
-            mnObj.push_back(Pair("privateKey", mne.getMerchantPrivKey()));
-            mnObj.push_back(Pair("status", strStatus));
-            resultObj.push_back(Pair("merchantnode", mnObj));
-        }
-
-        return resultObj;
-    }
-
-    if(strCommand == "connect")
-    {
-        if (params.size() < 2)
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Merchantnode address required");
-
-        std::string strAddress = params[1].get_str();
-
-        CService addr;
-        if (!Lookup(strAddress.c_str(), addr, 0, false))
-            throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("Incorrect merchantnode address %s", strAddress));
-
-        // TODO: Pass CConnman instance somehow and don't use global variable.
-        CNode *pnode = g_connman->ConnectNode(CAddress(addr, NODE_NETWORK), NULL);
-        if(!pnode)
-            throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("Couldn't connect to merchantnode %s", strAddress));
-
-        return "successfully connected";
-    }
-
-    if (strCommand == "count")
-    {
-        if (params.size() > 2)
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Too many parameters");
-
-        if (params.size() == 1)
-            return merchantnodeman.size();
-
-        std::string strMode = params[1].get_str();
-
-        if (strMode == "ps")
-            return merchantnodeman.CountEnabled();
-
-        if (strMode == "enabled")
-            return merchantnodeman.CountEnabled();
-
-
-        if (strMode == "all")
-            return strprintf("Total: %d (PS Compatible: %d / Enabled: %d)",
-                             merchantnodeman.size(), merchantnodeman.CountEnabled(),
-                             merchantnodeman.CountEnabled());
-    }
-
-    if (strCommand == "start-alias")
-    {
-        if (params.size() < 2)
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Please specify an alias");
-
-        {
-            LOCK(pwalletMain->cs_wallet);
-            EnsureWalletIsUnlocked();
-        }
-
-        std::string strAlias = params[1].get_str();
-
-        bool fFound = false;
-
-        UniValue statusObj(UniValue::VOBJ);
-        statusObj.push_back(Pair("alias", strAlias));
-
-        for(auto && mrne : merchantnodeConfig.getEntries()) {
-            if(mrne.getAlias() == strAlias) {
-                fFound = true;
-                std::string strError;
-                CMerchantnodeBroadcast mnb;
-
-                bool fResult = CMerchantnodeBroadcast::Create(mrne.getIp(), mrne.getMerchantPrivKey(),
-                                                              mrne.getContractTxID(), strError, mnb);
-
-                statusObj.push_back(Pair("result", fResult ? "successful" : "failed"));
-                if(fResult) {
-                    merchantnodeman.UpdateMerchantnodeList(mnb, *g_connman);
-                    mnb.Relay(*g_connman);
-                } else {
-                    statusObj.push_back(Pair("errorMessage", strError));
-                }
-
-                break;
-            }
-        }
-
-        if(!fFound) {
-            statusObj.push_back(Pair("result", "failed"));
-            statusObj.push_back(Pair("errorMessage", "Could not find alias in config. Verify with list-conf."));
-        }
-
-        return statusObj;
-    }
-
-    if (strCommand == "status")
-    {
-        if (!fMerchantNode)
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "This is not a merchantnode");
-
-        UniValue mnObj(UniValue::VOBJ);
-
-        mnObj.push_back(Pair("pubkey", HexStr(activeMerchantnode.pubKeyMerchantnode.Raw())));
-        mnObj.push_back(Pair("service", activeMerchantnode.service.ToString()));
-
-        CMerchantnode mn;
-        auto pubKey = activeMerchantnode.pubKeyMerchantnode;
-        if(merchantnodeman.Get(pubKey, mn)) {
-            mnObj.push_back(Pair("merchantAddress", CBitcoinAddress(pubKey.GetID()).ToString()));
-        }
-
-        mnObj.push_back(Pair("status", activeMerchantnode.GetStatus()));
-        return mnObj;
-    }
-
-    return NullUniValue;
-}
-
-UniValue merchantnodelist(const UniValue& params, bool fHelp)
+static UniValue merchantnodelist(const JSONRPCRequest& request)
 {
     std::string strMode = "status";
     std::string strFilter = "";
 
-    if (params.size() >= 1) strMode = params[0].get_str();
-    if (params.size() == 2) strFilter = params[1].get_str();
+    if (request.params.size() >= 1) strMode = request.params[0].get_str();
+    if (request.params.size() == 2) strFilter = request.params[1].get_str();
 
-    if (fHelp || (
+    if (request.fHelp || (
                 strMode != "activeseconds" && strMode != "addr" && strMode != "full" && strMode != "info" &&
                 strMode != "lastseen" && strMode != "lastpaidtime" && strMode != "lastpaidblock" &&
                 strMode != "protocol" && strMode != "payee" && strMode != "pubkey" &&
@@ -404,10 +196,226 @@ UniValue merchantnodelist(const UniValue& params, bool fHelp)
     }
 
     std::set<CService> myMerchantNodesIps;
-    return  ListOfMerchantNodes(params, myMerchantNodesIps, false);
+    return  ListOfMerchantNodes(request.params, myMerchantNodesIps, false);
 }
 
-bool DecodeHexVecMnb(std::vector<CMerchantnodeBroadcast>& vecMnb, std::string strHexMnb) {
+static UniValue merchantnode(const JSONRPCRequest& request)
+{
+#ifdef ENABLE_WALLET
+    auto pwallet = GetWalletForJSONRPCRequest(request);
+#endif
+    std::string strCommand;
+    if (request.params.size() >= 1) {
+        strCommand = request.params[0].get_str();
+    }
+
+#ifdef ENABLE_WALLET
+    if (strCommand == "start-many")
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "DEPRECATED, please use start-all instead");
+#endif // ENABLE_WALLET
+
+    if (request.fHelp  ||
+            (
+            #ifdef ENABLE_WALLET
+                strCommand != "start-alias" && strCommand != "start-all" && strCommand != "start-missing" &&
+                strCommand != "start-disabled" && strCommand != "outputs" &&
+            #endif // ENABLE_WALLET
+                strCommand != "list" && strCommand != "list-conf" && strCommand != "list-mine" && strCommand != "count" &&
+                strCommand != "debug" && strCommand != "current" && strCommand != "winner" && strCommand != "winners" && strCommand != "genkey" &&
+                strCommand != "connect" && strCommand != "status"))
+        throw std::runtime_error(
+                "merchantnode \"command\"...\n"
+                "Set of commands to execute merchantnode related actions\n"
+                "\nArguments:\n"
+                "1. \"command\"        (string or set of strings, required) The command to execute\n"
+                "\nAvailable commands:\n"
+                "  count        - Print number of all known merchantnodes (optional: 'ps', 'enabled', 'all', 'qualify')\n"
+                "  current      - Print info on current merchantnode winner to be paid the next block (calculated locally)\n"
+                "  genkey       - Generate new merchantnodeprivkey\n"
+            #ifdef ENABLE_WALLET
+                "  outputs      - Print merchantnode compatible outputs\n"
+                "  start-alias  - Start single remote merchantnode by assigned alias configured in merchantnode.conf\n"
+                "  start-<mode> - Start remote merchantnodes configured in merchantnode.conf (<mode>: 'all', 'missing', 'disabled')\n"
+            #endif // ENABLE_WALLET
+                "  status       - Print merchantnode status information\n"
+                "  list         - Print list of all known merchantnodes (see merchantnodelist for more info)\n"
+                "  list-conf    - Print merchantnode.conf in JSON format\n"
+                "  list-mine    - Print own nodes"
+                "  winner       - Print info on next merchantnode winner to vote for\n"
+                "  winners      - Print list of merchantnode winners\n"
+                );
+
+    if (strCommand == "list")
+    {
+        UniValue newParams(UniValue::VARR);
+        // forward request.params but skip "list"
+        for (unsigned int i = 1; i < request.params.size(); i++) {
+            newParams.push_back(request.params[i]);
+        }
+
+        auto newRequest = request;
+        newRequest.params = newParams;
+
+        return merchantnodelist(newRequest);
+    }
+
+    if(strCommand == "list-mine")
+    {
+        UniValue newParams(UniValue::VARR);
+        // forward request.params but skip "list-mine"
+        for (unsigned int i = 1; i < request.params.size(); i++) {
+            newParams.push_back(request.params[i]);
+        }
+
+        std::set<CService> myMerchantNodesIps;
+        for(auto &&mne : merchantnodeConfig.getEntries())
+        {
+            CService service;
+            Lookup(mne.getIp().c_str(), service, 0, false);
+
+            myMerchantNodesIps.insert(service);
+        }
+
+        return  ListOfMerchantNodes(newParams, myMerchantNodesIps, true);
+    }
+
+    if (strCommand == "list-conf")
+    {
+        UniValue resultObj(UniValue::VARR);
+
+        for(auto &&mne : merchantnodeConfig.getEntries())
+        {
+            CMerchantnode mn;
+            CKey privKey = DecodeSecret(mne.getMerchantPrivKey());
+            CPubKey pubKey = privKey.GetPubKey();
+            bool fFound = merchantnodeman.Get(pubKey, mn);
+
+            std::string strStatus = fFound ? mn.GetStatus() : "MISSING";
+
+            UniValue mnObj(UniValue::VOBJ);
+            mnObj.push_back(Pair("alias", mne.getAlias()));
+            mnObj.push_back(Pair("address", mne.getIp()));
+            mnObj.push_back(Pair("privateKey", mne.getMerchantPrivKey()));
+            mnObj.push_back(Pair("status", strStatus));
+            resultObj.push_back(mnObj);
+        }
+
+        return resultObj;
+    }
+
+    if(strCommand == "connect")
+    {
+        if (request.params.size() < 2)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Merchantnode address required");
+
+        std::string strAddress = request.params[1].get_str();
+
+        CService addr;
+        if (!Lookup(strAddress.c_str(), addr, 0, false))
+            throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("Incorrect merchantnode address %s", strAddress));
+
+        // TODO: Pass CConnman instance somehow and don't use global variable.
+        CNode *pnode = g_connman->OpenMasternodeConnection(CAddress(addr, NODE_NETWORK));
+        if(!pnode)
+            throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("Couldn't connect to merchantnode %s", strAddress));
+
+        return "successfully connected";
+    }
+
+    if (strCommand == "count")
+    {
+        if (request.params.size() > 2)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Too many parameters");
+
+        if (request.params.size() == 1)
+            return merchantnodeman.size();
+
+        std::string strMode = request.params[1].get_str();
+
+        if (strMode == "ps")
+            return merchantnodeman.CountEnabled();
+
+        if (strMode == "enabled")
+            return merchantnodeman.CountEnabled();
+
+
+        if (strMode == "all")
+            return strprintf("Total: %d (PS Compatible: %d / Enabled: %d)",
+                             merchantnodeman.size(), merchantnodeman.CountEnabled(),
+                             merchantnodeman.CountEnabled());
+    }
+#ifdef ENABLE_WALLET
+    if (strCommand == "start-alias")
+    {
+        if (request.params.size() < 2)
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Please specify an alias");
+
+        {
+            LOCK(pwallet->cs_wallet);
+            EnsureWalletIsUnlocked(pwallet);
+        }
+
+        std::string strAlias = request.params[1].get_str();
+
+        bool fFound = false;
+
+        UniValue statusObj(UniValue::VOBJ);
+        statusObj.push_back(Pair("alias", strAlias));
+
+        for(auto && mrne : merchantnodeConfig.getEntries()) {
+            if(mrne.getAlias() == strAlias) {
+                fFound = true;
+                std::string strError;
+                CMerchantnodeBroadcast mnb;
+
+                bool fResult = CMerchantnodeBroadcast::Create(mrne.getIp(), mrne.getMerchantPrivKey(),
+                                                              mrne.getContractTxID(), strError, mnb);
+
+                statusObj.push_back(Pair("result", fResult ? "successful" : "failed"));
+                if(fResult) {
+                    merchantnodeman.UpdateMerchantnodeList(mnb, *g_connman);
+                    mnb.Relay(*g_connman);
+                } else {
+                    statusObj.push_back(Pair("errorMessage", strError));
+                }
+
+                break;
+            }
+        }
+
+        if(!fFound) {
+            statusObj.push_back(Pair("result", "failed"));
+            statusObj.push_back(Pair("errorMessage", "Could not find alias in config. Verify with list-conf."));
+        }
+
+        return statusObj;
+    }
+#endif
+
+    if (strCommand == "status")
+    {
+        if (!fMerchantNode)
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "This is not a merchantnode");
+
+        UniValue mnObj(UniValue::VOBJ);
+
+        mnObj.push_back(Pair("pubkey", activeMerchantnode.pubKeyMerchantnode.GetID().ToString()));
+        mnObj.push_back(Pair("service", activeMerchantnode.service.ToString()));
+
+        CMerchantnode mn;
+        auto pubKey = activeMerchantnode.pubKeyMerchantnode;
+        if(merchantnodeman.Get(pubKey, mn)) {
+            mnObj.push_back(Pair("merchantAddress", CBitcoinAddress(pubKey.GetID()).ToString()));
+        }
+
+        mnObj.push_back(Pair("status", activeMerchantnode.GetStatus()));
+        return mnObj;
+    }
+
+    return NullUniValue;
+}
+
+static bool DecodeHexVecMnb(std::vector<CMerchantnodeBroadcast>& vecMnb, std::string strHexMnb) {
 
     if (!IsHex(strHexMnb))
         return false;
@@ -424,9 +432,9 @@ bool DecodeHexVecMnb(std::vector<CMerchantnodeBroadcast>& vecMnb, std::string st
     return true;
 }
 
-UniValue merchantsentinelping(const UniValue& params, bool fHelp)
+UniValue merchantsentinelping(const JSONRPCRequest& request)
 {
-    if (fHelp || params.size() != 1) {
+    if (request.fHelp || request.params.size() != 1) {
         throw std::runtime_error(
                     "sentinelping version\n"
                     "\nSentinel ping.\n"
@@ -440,19 +448,20 @@ UniValue merchantsentinelping(const UniValue& params, bool fHelp)
                     );
     }
 
-    activeMerchantnode.UpdateSentinelPing(StringVersionToInt(params[0].get_str()));
+    //    activeMerchantnode.UpdateSentinelPing(StringVersionToInt(request.params[0].get_str()));
     return true;
 }
 
 #ifdef ENABLE_WALLET
-UniValue tposcontract(const UniValue& params, bool fHelp)
+UniValue tposcontract(const JSONRPCRequest& request)
 {
+    auto pwallet = GetWalletForJSONRPCRequest(request);
     std::string strCommand;
-    if (params.size() >= 1) {
-        strCommand = params[0].get_str();
+    if (request.params.size() >= 1) {
+        strCommand = request.params[0].get_str();
     }
 
-    if (fHelp  || (strCommand != "list" && strCommand != "create" && strCommand != "refresh"))
+    if (request.fHelp  || (strCommand != "list" && strCommand != "create" && strCommand != "refresh"))
         throw std::runtime_error(
                 "tposcontract \"command\"...\n"
                 "Set of commands to execute merchantnode related actions\n"
@@ -464,6 +473,7 @@ UniValue tposcontract(const UniValue& params, bool fHelp)
                 "  refresh          - Refresh tpos contract for merchant to fetch all coins from blockchain.\n"
                 );
 
+
     if (strCommand == "list")
     {
         UniValue result(UniValue::VOBJ);
@@ -473,7 +483,7 @@ UniValue tposcontract(const UniValue& params, bool fHelp)
         auto parseContract = [](const TPoSContract &contract) {
             UniValue object(UniValue::VOBJ);
 
-            object.push_back(Pair("txid", contract.rawTx.GetHash().ToString()));
+            object.push_back(Pair("txid", contract.rawTx->GetHash().ToString()));
             object.push_back(Pair("tposAddress", contract.tposAddress.ToString()));
             object.push_back(Pair("merchantAddress", contract.merchantAddress.ToString()));
             object.push_back(Pair("commission", 100 - contract.stakePercentage)); // show merchant commission
@@ -483,12 +493,12 @@ UniValue tposcontract(const UniValue& params, bool fHelp)
             return object;
         };
 
-        for(auto &&it : pwalletMain->tposMerchantContracts)
+        for(auto &&it : pwallet->tposMerchantContracts)
         {
             merchantArray.push_back(parseContract(it.second));
         }
 
-        for(auto &&it : pwalletMain->tposOwnerContracts)
+        for(auto &&it : pwallet->tposOwnerContracts)
         {
             ownerArray.push_back(parseContract(it.second));
         }
@@ -500,13 +510,13 @@ UniValue tposcontract(const UniValue& params, bool fHelp)
     }
     else if(strCommand == "create")
     {
-        if (params.size() < 4)
+        if (request.params.size() < 4)
             throw JSONRPCError(RPC_INVALID_PARAMETER,
                                "Expected format: tposcontract create tpos_address merchant_address commission");
 
-        CBitcoinAddress tposAddress(params[1].get_str());
-        CBitcoinAddress merchantAddress(params[2].get_str());
-        int commission = std::stoi(params[3].get_str());
+        CBitcoinAddress tposAddress(request.params[1].get_str());
+        CBitcoinAddress merchantAddress(request.params[2].get_str());
+        int commission = std::stoi(request.params[3].get_str());
 
         if(!tposAddress.IsValid())
             throw JSONRPCError(RPC_INVALID_PARAMETER,
@@ -516,16 +526,16 @@ UniValue tposcontract(const UniValue& params, bool fHelp)
             throw JSONRPCError(RPC_INVALID_PARAMETER,
                                "merchant address is not valid, won't continue");
 
-        CReserveKey reserveKey(pwalletMain);
+        CReserveKey reserveKey(pwallet);
 
         std::string strError;
-        auto walletTx = TPoSUtils::CreateTPoSTransaction(pwalletMain, reserveKey,
-                                                         tposAddress, merchantAddress,
-                                                         commission, strError);
+        auto transaction = MakeTransactionRef();
 
-        if(walletTx)
+        if(TPoSUtils::CreateTPoSTransaction(pwallet, transaction,
+                                            reserveKey, tposAddress,
+                                            merchantAddress, commission, strError))
         {
-            return EncodeHexTx(*walletTx);
+            return EncodeHexTx(*transaction);
         }
         else
         {
@@ -534,21 +544,66 @@ UniValue tposcontract(const UniValue& params, bool fHelp)
     }
     else if(strCommand == "refresh")
     {
-        if(params.size() < 2)
+        if(request.params.size() < 2)
             throw JSONRPCError(RPC_INVALID_PARAMETER,
                                "Expected format: tposcontract refres tposcontract_id");
 
-        auto tposContractHashID = ParseHashV(params[1], "tposcontractid");
+        auto tposContractHashID = ParseHashV(request.params[1], "tposcontractid");
 
-        auto it = pwalletMain->tposMerchantContracts.find(tposContractHashID);
-        if(it == std::end(pwalletMain->tposMerchantContracts))
+        auto it = pwallet->tposMerchantContracts.find(tposContractHashID);
+        if(it == std::end(pwallet->tposMerchantContracts))
             return "No merchant tpos contract found";
 
-        pwalletMain->ScanForWalletTransactions(chainActive.Genesis(), true);
-        pwalletMain->ReacceptWalletTransactions();
+        WalletRescanReserver reserver(pwallet);
+        pwallet->ScanForWalletTransactions(chainActive.Genesis(), chainActive.Tip(), reserver, true);
+        pwallet->ReacceptWalletTransactions();
+    }
+    else if(strCommand == "cleanup")
+    {
+        if(request.params.size() < 2)
+            throw JSONRPCError(RPC_INVALID_PARAMETER,
+                               "Expected format: tposcontract refres tposcontract_id");
+
+        auto tposContractHashID = ParseHashV(request.params[1], "tposcontractid");
+
+        auto it = pwallet->tposMerchantContracts.find(tposContractHashID);
+        if(it == std::end(pwallet->tposMerchantContracts))
+            return "No merchant tpos contract found";
+
+        CTransactionRef tx;
+        uint256 hashBlock;
+        if(!GetTransaction(tposContractHashID, tx, Params().GetConsensus(), hashBlock, true))
+        {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Failed to get transaction for tpos contract ");
+        }
+
+        TPoSContract tmpContract = TPoSContract::FromTPoSContractTx(tx);
+
+        if(!tmpContract.IsValid())
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "Contract is invalid");
+
+            pwallet->RemoveWatchOnly(GetScriptForDestination(tmpContract.tposAddress.Get()));
     }
 
     return NullUniValue;
 }
 
 #endif
+
+static const CRPCCommand commands[] =
+{ //  category              name                      actor (function)         argNames
+  //  --------------------- ------------------------  -----------------------  ----------
+  { "merchantnode",            "merchantnode",            &merchantnode,            {"command"} }, /* uses wallet if enabled */
+  { "merchantnode",            "merchantnodelist",        &merchantnodelist,        {"mode", "filter"} },
+  #ifdef ENABLE_WALLET
+  { "merchantnode",            "tposcontract",            &tposcontract,            {"command"} },
+  #endif
+  { "merchantnode",            "merchantsync",            &merchantsync,            {"command"} },
+};
+
+void RegisterMerchantnodeCommands(CRPCTable &t)
+{
+    for (unsigned int vcidx = 0; vcidx < ARRAYLEN(commands); vcidx++)
+        t.appendCommand(commands[vcidx].name, &commands[vcidx]);
+}
+

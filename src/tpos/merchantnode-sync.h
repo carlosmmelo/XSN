@@ -4,10 +4,8 @@
 #ifndef MERCHANTNODE_SYNC_H
 #define MERCHANTNODE_SYNC_H
 
-#include "chain.h"
-#include "net.h"
-
-#include <univalue.h>
+#include <chain.h>
+#include <net.h>
 
 class CMerchantnodeSync;
 
@@ -67,7 +65,7 @@ public:
     void Reset();
     void SwitchToNextAsset(CConnman& connman);
 
-    void ProcessMessage(CNode* pfrom, std::string& strCommand, CDataStream& vRecv);
+    void ProcessMessage(CNode* pfrom, const std::string &strCommand, CDataStream& vRecv);
     void ProcessTick(CConnman& connman);
 
     void AcceptedBlockHeader(const CBlockIndex *pindexNew);

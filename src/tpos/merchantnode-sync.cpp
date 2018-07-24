@@ -2,17 +2,17 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "activemerchantnode.h"
-#include "checkpoints.h"
-#include "governance.h"
-#include "validation.h"
-#include "merchantnode-sync.h"
-#include "merchantnode.h"
-#include "merchantnodeman.h"
-#include "netfulfilledman.h"
-#include "spork.h"
-#include "ui_interface.h"
-#include "util.h"
+#include <tpos/activemerchantnode.h>
+#include <checkpoints.h>
+#include <governance/governance.h>
+#include <validation.h>
+#include <tpos/merchantnode-sync.h>
+#include <tpos/merchantnode.h>
+#include <tpos/merchantnodeman.h>
+#include <netfulfilledman.h>
+#include <spork.h>
+#include <ui_interface.h>
+#include <util.h>
 
 class CMerchantnodeSync;
 CMerchantnodeSync merchantnodeSync;
@@ -36,7 +36,7 @@ void CMerchantnodeSync::BumpAssetLastTime(std::string strFuncName)
 {
     if(IsSynced() || IsFailed()) return;
     nTimeLastBumped = GetTime();
-    LogPrint("mnsync", "CMerchantnodeSync::BumpAssetLastTime -- %s\n", strFuncName);
+    LogPrint(BCLog::MNSYNC, "CMerchantnodeSync::BumpAssetLastTime -- %s\n", strFuncName);
 }
 
 std::string CMerchantnodeSync::GetAssetName()
@@ -81,7 +81,7 @@ void CMerchantnodeSync::SwitchToNextAsset(CConnman& connman)
             // TRY_LOCK(cs_vNodes, lockRecv);
             // if(lockRecv) { ... }
 
-            connman.ForEachNode(CConnman::AllNodes, [](CNode* pnode) {
+            connman.ForEachNode([](CNode* pnode) {
                 netfulfilledman.AddFulfilledRequest(pnode->addr, "full-mrnsync");
             });
             LogPrintf("CMerchantnodeSync::SwitchToNextAsset -- Sync has finished\n");
@@ -105,7 +105,7 @@ std::string CMerchantnodeSync::GetSyncStatus()
     }
 }
 
-void CMerchantnodeSync::ProcessMessage(CNode* pfrom, std::string& strCommand, CDataStream& vRecv)
+void CMerchantnodeSync::ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv)
 {
     if (strCommand == NetMsgType::MERCHANTSYNCSTATUSCOUNT) { //Sync status count
 
@@ -116,7 +116,7 @@ void CMerchantnodeSync::ProcessMessage(CNode* pfrom, std::string& strCommand, CD
         int nCount;
         vRecv >> nItemID >> nCount;
 
-        LogPrintf("MERCHANTSYNCSTATUSCOUNT -- got inventory count: nItemID=%d  nCount=%d  peer=%d\n", nItemID, nCount, pfrom->id);
+        LogPrint(BCLog::MNSYNC, "MERCHANTSYNCSTATUSCOUNT -- got inventory count: nItemID=%d  nCount=%d  peer=%d\n", nItemID, nCount, pfrom->GetId());
     }
 }
 
@@ -126,7 +126,7 @@ void CMerchantnodeSync::ClearFulfilledRequests(CConnman& connman)
     // TRY_LOCK(cs_vNodes, lockRecv);
     // if(!lockRecv) return;
 
-    connman.ForEachNode(CConnman::AllNodes, [](CNode* pnode) {
+    connman.ForEachNode([](CNode* pnode) {
         netfulfilledman.RemoveFulfilledRequest(pnode->addr, "merchantnode-list-sync");
         netfulfilledman.RemoveFulfilledRequest(pnode->addr, "full-mrnsync");
     });
@@ -168,7 +168,7 @@ void CMerchantnodeSync::ProcessTick(CConnman& connman)
 
     // Calculate "progress" for LOG reporting / GUI notification
     double nSyncProgress = double(nRequestedMerchantnodeAttempt + (nRequestedMerchantnodeAssets - 1) * 8) / (8*4);
-    LogPrintf("CMerchantnodeSync::ProcessTick -- nTick %d nRequestedMerchantnodeAssets %d nRequestedMerchantnodeAttempt %d nSyncProgress %f\n", nTick, nRequestedMerchantnodeAssets, nRequestedMerchantnodeAttempt, nSyncProgress);
+    LogPrint(BCLog::MERCHANTNODE, "CMerchantnodeSync::ProcessTick -- nTick %d nRequestedMerchantnodeAssets %d nRequestedMerchantnodeAttempt %d nSyncProgress %f\n", nTick, nRequestedMerchantnodeAssets, nRequestedMerchantnodeAttempt, nSyncProgress);
     uiInterface.NotifyAdditionalDataSyncProgressChanged(nSyncProgress);
 
     std::vector<CNode*> vNodesCopy = connman.CopyNodeVector();
@@ -181,34 +181,13 @@ void CMerchantnodeSync::ProcessTick(CConnman& connman)
         // initiated from another node, so skip it too.
         if(pnode->fMerchantnode || (fMerchantNode && pnode->fInbound)) continue;
 
-        // QUICK MODE (REGTEST ONLY!)
-#if 0
-        if(Params().NetworkIDString() == CBaseChainParams::REGTEST)
-        {
-            if(nRequestedMerchantnodeAttempt <= 2) {
-                connman.PushMessageWithVersion(pnode, INIT_PROTO_VERSION, NetMsgType::GETSPORKS); //get current network sporks
-            } else if(nRequestedMerchantnodeAttempt < 4) {
-                merchantnodeman.DsegUpdate(pnode, connman);
-            } else if(nRequestedMerchantnodeAttempt < 6) {
-                int nMnCount = merchantnodeman.CountMerchantnodes();
-                connman.PushMessage(pnode, NetMsgType::MERCHANTNODEPAYMENTSYNC, nMnCount); //sync payment votes
-                SendGovernanceSyncRequest(pnode, connman);
-            } else {
-                nRequestedMerchantnodeAssets = MERCHANTNODE_SYNC_FINISHED;
-            }
-            nRequestedMerchantnodeAttempt++;
-            connman.ReleaseNodeVector(vNodesCopy);
-            return;
-        }
-#endif
-
         // NORMAL NETWORK MODE - TESTNET/MAINNET
         {
             if(netfulfilledman.HasFulfilledRequest(pnode->addr, "full-mrnsync")) {
                 // We already fully synced from this node recently,
                 // disconnect to free this connection slot for another peer.
                 pnode->fDisconnect = true;
-                LogPrintf("CMerchantnodeSync::ProcessTick -- disconnecting from recently synced peer %d\n", pnode->id);
+                LogPrintf("CMerchantnodeSync::ProcessTick -- disconnecting from recently synced peer %d\n", pnode->GetId());
                 continue;
             }
 
@@ -231,10 +210,10 @@ void CMerchantnodeSync::ProcessTick(CConnman& connman)
             // MNLIST : SYNC MERCHANTNODE LIST FROM OTHER CONNECTED CLIENTS
 
             if(nRequestedMerchantnodeAssets == MERCHANTNODE_SYNC_LIST) {
-                LogPrint("merchantnode", "CMerchantnodeSync::ProcessTick -- nTick %d nRequestedMerchantnodeAssets %d nTimeLastBumped %lld GetTime() %lld diff %lld\n", nTick, nRequestedMerchantnodeAssets, nTimeLastBumped, GetTime(), GetTime() - nTimeLastBumped);
+                LogPrint(BCLog::MERCHANTNODE, "CMerchantnodeSync::ProcessTick -- nTick %d nRequestedMerchantnodeAssets %d nTimeLastBumped %lld GetTime() %lld diff %lld\n", nTick, nRequestedMerchantnodeAssets, nTimeLastBumped, GetTime(), GetTime() - nTimeLastBumped);
                 // check for timeout first
                 if(GetTime() - nTimeLastBumped > MERCHANTNODE_SYNC_TIMEOUT_SECONDS) {
-                    LogPrintf("CMerchantnodeSync::ProcessTick -- nTick %d nRequestedMerchantnodeAssets %d -- timeout\n", nTick, nRequestedMerchantnodeAssets);
+                    LogPrint(BCLog::MERCHANTNODE, "CMerchantnodeSync::ProcessTick -- nTick %d nRequestedMerchantnodeAssets %d -- timeout\n", nTick, nRequestedMerchantnodeAssets);
                     if (nRequestedMerchantnodeAttempt == 0) {
                         LogPrintf("CMerchantnodeSync::ProcessTick -- ERROR: failed to sync %s\n", GetAssetName());
                         // there is no way we can continue without masternode list, fail here and try later
@@ -251,7 +230,7 @@ void CMerchantnodeSync::ProcessTick(CConnman& connman)
                 if(netfulfilledman.HasFulfilledRequest(pnode->addr, "merchantnode-list-sync")) continue;
                 netfulfilledman.AddFulfilledRequest(pnode->addr, "merchantnode-list-sync");
 
-                if (pnode->nVersion < PROTOCOL_VERSION) continue;
+//                if (pnode->nVersion < PROTOCOL_VERSION) continue;
                 nRequestedMerchantnodeAttempt++;
 
                 merchantnodeman.DsegUpdate(pnode, connman);
@@ -268,7 +247,7 @@ void CMerchantnodeSync::ProcessTick(CConnman& connman)
 
 void CMerchantnodeSync::AcceptedBlockHeader(const CBlockIndex *pindexNew)
 {
-    LogPrint("mnsync", "CMerchantnodeSync::AcceptedBlockHeader -- pindexNew->nHeight: %d\n", pindexNew->nHeight);
+    LogPrint(BCLog::MNSYNC, "CMerchantnodeSync::AcceptedBlockHeader -- pindexNew->nHeight: %d\n", pindexNew->nHeight);
 
     if (!IsBlockchainSynced()) {
         // Postpone timeout each time new block header arrives while we are still syncing blockchain
@@ -278,7 +257,7 @@ void CMerchantnodeSync::AcceptedBlockHeader(const CBlockIndex *pindexNew)
 
 void CMerchantnodeSync::NotifyHeaderTip(const CBlockIndex *pindexNew, bool fInitialDownload, CConnman& connman)
 {
-    LogPrint("mnsync", "CMerchantnodeSync::NotifyHeaderTip -- pindexNew->nHeight: %d fInitialDownload=%d\n", pindexNew->nHeight, fInitialDownload);
+    LogPrint(BCLog::MNSYNC, "CMerchantnodeSync::NotifyHeaderTip -- pindexNew->nHeight: %d fInitialDownload=%d\n", pindexNew->nHeight, fInitialDownload);
 
     if (IsFailed() || IsSynced() || !pindexBestHeader)
         return;
@@ -291,7 +270,7 @@ void CMerchantnodeSync::NotifyHeaderTip(const CBlockIndex *pindexNew, bool fInit
 
 void CMerchantnodeSync::UpdatedBlockTip(const CBlockIndex *pindexNew, bool fInitialDownload, CConnman& connman)
 {
-    LogPrint("mnsync", "CMerchantnodeSync::UpdatedBlockTip -- pindexNew->nHeight: %d fInitialDownload=%d\n", pindexNew->nHeight, fInitialDownload);
+    LogPrint(BCLog::MNSYNC, "CMerchantnodeSync::UpdatedBlockTip -- pindexNew->nHeight: %d fInitialDownload=%d\n", pindexNew->nHeight, fInitialDownload);
 
     if (IsFailed() || IsSynced() || !pindexBestHeader)
         return;
@@ -326,7 +305,7 @@ void CMerchantnodeSync::UpdatedBlockTip(const CBlockIndex *pindexNew, bool fInit
 
     fReachedBestHeader = fReachedBestHeaderNew;
 
-    LogPrint("mnsync", "CMerchantnodeSync::UpdatedBlockTip -- pindexNew->nHeight: %d pindexBestHeader->nHeight: %d fInitialDownload=%d fReachedBestHeader=%d\n",
+    LogPrint(BCLog::MNSYNC, "CMerchantnodeSync::UpdatedBlockTip -- pindexNew->nHeight: %d pindexBestHeader->nHeight: %d fInitialDownload=%d fReachedBestHeader=%d\n",
                 pindexNew->nHeight, pindexBestHeader->nHeight, fInitialDownload, fReachedBestHeader);
 
     if (!IsBlockchainSynced() && fReachedBestHeader) {

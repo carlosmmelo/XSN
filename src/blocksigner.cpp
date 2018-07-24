@@ -1,11 +1,26 @@
-#include "blocksigner.h"
-#include "tpos/tposutils.h"
-#include "tpos/activemerchantnode.h"
-#include "keystore.h"
-#include "primitives/block.h"
-#include "utilstrencodings.h"
+#include <blocksigner.h>
+#include <tpos/tposutils.h>
+#include <tpos/activemerchantnode.h>
+#include <keystore.h>
+#include <primitives/block.h>
+#include <utilstrencodings.h>
+#include <messagesigner.h>
 
-CBlockSigner::CBlockSigner(CBlock &block, const CKeyStore &keystore, const TPoSContract &contract) :
+static CPubKey::InputScriptType GetScriptTypeFromDestination(const CTxDestination &dest)
+{
+    if (boost::get<CKeyID>(&dest)) {
+        return CPubKey::InputScriptType::SPENDP2PKH;
+    }
+    if (boost::get<WitnessV0KeyHash>(&dest)) {
+        return CPubKey::InputScriptType::SPENDWITNESS;
+    }
+    if (boost::get<CScriptID>(&dest)) {
+        return CPubKey::InputScriptType::SPENDP2SHWITNESS;
+    }
+    return CPubKey::InputScriptType::SPENDUNKNOWN;
+}
+
+CBlockSigner::CBlockSigner(CBlock &block, const CKeyStore *keystore, const TPoSContract &contract) :
     refBlock(block),
     refKeystore(keystore),
     refContract(contract)
@@ -15,17 +30,18 @@ CBlockSigner::CBlockSigner(CBlock &block, const CKeyStore &keystore, const TPoSC
 
 bool CBlockSigner::SignBlock()
 {
-    std::vector<std::vector<unsigned char>> vSolutions;
-    txnouttype whichType;
-
     CKey keySecret;
+    CPubKey::InputScriptType scriptType;
 
     if(refBlock.IsProofOfStake())
     {
-        const CTxOut& txout = refBlock.vtx[1].vout[1];
+        const CTxOut& txout = refBlock.vtx[1]->vout[1];
 
-        if (!Solver(txout.scriptPubKey, whichType, vSolutions))
-            return false;
+        CTxDestination destination;
+        if(!ExtractDestination(txout.scriptPubKey, destination))
+        {
+            return error("Failed to extract destination while signing: %s\n", txout.ToString());
+        }
 
         if(refBlock.IsTPoSBlock())
         {
@@ -36,49 +52,25 @@ bool CBlockSigner::SignBlock()
             if(merchantKeyID != activeMerchantnode.pubKeyMerchantnode.GetID())
                 return error("CBlockSigner::SignBlock() : contract address is different from merchantnode address, won't sign.");
 
+            scriptType = CPubKey::InputScriptType::SPENDP2PKH;
+
             keySecret = activeMerchantnode.keyMerchantnode;
         }
         else
         {
-            CKeyID keyID;
-
-            if (whichType == TX_PUBKEYHASH)
-            {
-                keyID = CKeyID(uint160(vSolutions[0]));
+            auto keyid = GetKeyForDestination(*refKeystore, destination);
+            if (keyid.IsNull()) {
+                return error("CBlockSigner::SignBlock() : failed to get key for destination, won't sign.");
             }
-            else if(whichType == TX_PUBKEY)
-            {
-                keyID = CPubKey(vSolutions[0]).GetID();
+            if (!refKeystore->GetKey(keyid, keySecret)) {
+                return error("CBlockSigner::SignBlock() : Private key for address %s not known", EncodeDestination(destination));
             }
 
-            if (!refKeystore.GetKey(keyID, keySecret))
-                return false;
+            scriptType = GetScriptTypeFromDestination(destination);
         }
     }
-    else
-    {
-        const CTxOut& txout = refBlock.vtx[0].vout[0];
-
-        if (!Solver(txout.scriptPubKey, whichType, vSolutions))
-            return false;
-
-        CKeyID keyID;
-
-        if (whichType == TX_PUBKEYHASH)
-        {
-            keyID = CKeyID(uint160(vSolutions[0]));
-        }
-        else if(whichType == TX_PUBKEY)
-        {
-            keyID = CPubKey(vSolutions[0]).GetID();
-        }
-
-        if (!refKeystore.GetKey(keyID, keySecret))
-            return false;
-    }
-
-
-    return keySecret.SignCompact(refBlock.IsTPoSBlock() ? refBlock.GetTPoSHash() : refBlock.GetHash(), refBlock.vchBlockSig);
+//?
+    return CHashSigner::SignHash(refBlock.IsTPoSBlock() ? refBlock.GetTPoSHash() : refBlock.GetHash(), keySecret, scriptType, refBlock.vchBlockSig);
 }
 
 bool CBlockSigner::CheckBlockSignature() const
@@ -89,57 +81,28 @@ bool CBlockSigner::CheckBlockSignature() const
     if(refBlock.vchBlockSig.empty())
         return false;
 
-    std::vector<std::vector<unsigned char>> vSolutions;
-    txnouttype whichType;
+    const CTxOut& txout = refBlock.vtx[1]->vout[1];
 
-    const CTxOut& txout = refBlock.vtx[1].vout[1];
+    CTxDestination destination;
 
-    if (!Solver(txout.scriptPubKey, whichType, vSolutions))
-        return false;
-
-    CKeyID signatureKeyID;
-    CPubKey recoveredKey;
+    if(!ExtractDestination(txout.scriptPubKey, destination))
+    {
+        return error("CBlockSigner::CheckBlockSignature() : failed to extract destination from script: %s", txout.scriptPubKey.ToString());
+    }
 
     auto hashMessage = refBlock.IsTPoSBlock() ? refBlock.GetTPoSHash() : refBlock.GetHash();
-
-    if(!recoveredKey.RecoverCompact(hashMessage, refBlock.vchBlockSig))
-        return error("CBlockSigner::CheckBlockSignature() : failed to recover public key from signature");
-
     if(refBlock.IsProofOfStake())
     {
         if(refBlock.IsTPoSBlock())
         {
-            if(!refContract.merchantAddress.GetKeyID(signatureKeyID))
-                return error("CBlockSigner::CheckBlockSignature() : merchant address is not P2PKH, critical error, can't accept.");
-        }
-        else
-        {
-            if (whichType == TX_PUBKEYHASH)
-            {
-                signatureKeyID = CKeyID(uint160(vSolutions[0]));
-            }
-            else if(whichType == TX_PUBKEY)
-            {
-                signatureKeyID = CPubKey(vSolutions[0]).GetID();
-            }
+            destination = refContract.merchantAddress.Get();
         }
     }
     else
     {
-        const CTxOut& txout = refBlock.vtx[0].vout[0];
-
-        if (!Solver(txout.scriptPubKey, whichType, vSolutions))
-            return false;
-
-        if (whichType == TX_PUBKEYHASH)
-        {
-            signatureKeyID = CKeyID(uint160(vSolutions[0]));
-        }
-        else if(whichType == TX_PUBKEY)
-        {
-            signatureKeyID = CPubKey(vSolutions[0]).GetID();
-        }
+        return true;
     }
 
-    return recoveredKey.GetID() == signatureKeyID;
+    std::string strError;
+    return CHashSigner::VerifyHash(hashMessage, destination, refBlock.vchBlockSig, strError);
 }

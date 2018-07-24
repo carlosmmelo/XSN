@@ -1,8 +1,3 @@
-*.sublime-project
-*.sublime-workspace
-todo.txt
-reset-files.bash
-
 *.tar.gz
 
 *.exe
@@ -11,8 +6,8 @@ src/xsnd
 src/xsn-cli
 src/xsn-tx
 src/test/test_xsn
+src/test/test_xsn_fuzzy
 src/qt/test/test_xsn-qt
-src/bench/bench_xsn
 
 # autoreconf
 Makefile.in
@@ -48,7 +43,12 @@ src/qt/moc_*.cpp
 src/qt/forms/ui_*.h
 
 src/qt/test/moc*.cpp
-libconftest.dylib*
+
+src/qt/xsn-qt.config
+src/qt/xsn-qt.creator
+src/qt/xsn-qt.creator.user
+src/qt/xsn-qt.files
+src/qt/xsn-qt.includes
 
 .deps
 .dirstamp
@@ -62,7 +62,6 @@ libconftest.dylib*
 *.o
 *.o-*
 *.patch
-.xsn
 *.a
 *.pb.cc
 *.pb.h
@@ -83,12 +82,11 @@ libconftest.dylib*
 Makefile
 xsn-qt
 XSN-Qt.app
-*.user
+background.tiff*
 
 # Unit-tests
 Makefile.test
 xsn-qt_test
-src/test/buildenv.py
 
 # Resources cpp
 qrc_*.cpp
@@ -109,27 +107,17 @@ coverage_percent.txt
 linux-coverage-build
 linux-build
 win32-build
-qa/pull-tester/run-bitcoind-for-test.sh
-qa/pull-tester/tests_config.py
-qa/pull-tester/cache/*
-qa/pull-tester/test.*/*
-qa/tmp
-cache/
-share/BitcoindComparisonTool.jar
+test/config.ini
+test/cache/*
 
 !src/leveldb*/Makefile
 
-.cproject
-.project
-.autotools
 /doc/doxygen/
 
 libxsnconsensus.pc
-src/qt/xsn-qt.bash
-qa/pull-tester/tests-config.sh
+contrib/devtools/split-debug.sh
+*creator*
+src/core
 
-#development symlinks
-xsn-cli
-xsnd
-xsn-qt
-make
+# IDE files
+.idea/

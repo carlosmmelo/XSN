@@ -2,18 +2,18 @@
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "activemerchantnode.h"
-#include "base58.h"
-#include "init.h"
-#include "netbase.h"
-#include "merchantnode.h"
-#include "merchantnodeman.h"
-#include "merchantnode-sync.h"
-#include "messagesigner.h"
-#include "script/standard.h"
-#include "util.h"
+#include <tpos/activemerchantnode.h>
+#include <key_io.h>
+#include <init.h>
+#include <netbase.h>
+#include <tpos/merchantnode.h>
+#include <tpos/merchantnodeman.h>
+#include <tpos/merchantnode-sync.h>
+#include <messagesigner.h>
+#include <script/standard.h>
+#include <util.h>
 #ifdef ENABLE_WALLET
-#include "wallet/wallet.h"
+#include <wallet/wallet.h>
 #endif // ENABLE_WALLET
 
 #include <boost/lexical_cast.hpp>
@@ -85,20 +85,17 @@ bool CMerchantnode::UpdateFromNewBroadcast(CMerchantnodeBroadcast& mnb, CConnman
 
 void CMerchantnode::Check(bool fForce)
 {
-    LOCK(cs);
+    LOCK2(cs_main, cs);
 
     if(ShutdownRequested()) return;
 
     if(!fForce && (GetTime() - nTimeLastChecked < MERCHANTNODE_CHECK_SECONDS)) return;
     nTimeLastChecked = GetTime();
 
-    LogPrint("merchantnode", "CMerchantnode::Check -- Merchantnode %s is in %s state\n", HexStr(pubKeyMerchantnode.Raw()), GetStateString());
+    LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- Merchantnode %s is in %s state\n", pubKeyMerchantnode.GetID().ToString(), GetStateString());
 
     int nHeight = 0;
     if(!fUnitTest) {
-        TRY_LOCK(cs_main, lockMain);
-        if(!lockMain) return;
-
         nHeight = chainActive.Height();
     }
 
@@ -107,13 +104,15 @@ void CMerchantnode::Check(bool fForce)
         // Otherwise give it a chance to proceed further to do all the usual checks and to change its state.
         // Merchantnode still will be on the edge and can be banned back easily if it keeps ignoring mnverify
         // or connect attempts. Will require few mnverify messages to strengthen its position in mn list.
-        LogPrintf("CMerchantnode::Check -- Merchantnode %s is unbanned and back in list now\n", HexStr(pubKeyMerchantnode.Raw()));
+        LogPrintf("CMerchantnode::Check -- Merchantnode %s is unbanned and back in list now\n",
+                  pubKeyMerchantnode.GetID().ToString());
         DecreasePoSeBanScore();
     } else if(nPoSeBanScore >= MERCHANTNODE_POSE_BAN_MAX_SCORE) {
         nActiveState = MERCHANTNODE_POSE_BAN;
         // ban for the whole payment cycle
         nPoSeBanHeight = 60;
-        LogPrintf("CMerchantnode::Check -- Merchantnode %s is banned till block %d now\n", HexStr(pubKeyMerchantnode.Raw()), nPoSeBanHeight);
+        LogPrintf("CMerchantnode::Check -- Merchantnode %s is banned till block %d now\n",
+                  pubKeyMerchantnode.GetID().ToString(), nPoSeBanHeight);
         return;
     }
 
@@ -128,7 +127,8 @@ void CMerchantnode::Check(bool fForce)
     if(fRequireUpdate) {
         nActiveState = MERCHANTNODE_UPDATE_REQUIRED;
         if(nActiveStatePrev != nActiveState) {
-            LogPrint("merchantnode", "CMerchantnode::Check -- Merchantnode %s is in %s state now\n", HexStr(pubKeyMerchantnode.Raw()), GetStateString());
+            LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- Merchantnode %s is in %s state now\n",
+                     pubKeyMerchantnode.GetID().ToString(), GetStateString());
         }
         return;
     }
@@ -139,7 +139,8 @@ void CMerchantnode::Check(bool fForce)
     if(fWaitForPing && !fOurMerchantnode) {
         // ...but if it was already expired before the initial check - return right away
         if(IsExpired() || IsWatchdogExpired() || IsNewStartRequired()) {
-            LogPrint("merchantnode", "CMerchantnode::Check -- Merchantnode %s is in %s state, waiting for ping\n", HexStr(pubKeyMerchantnode.Raw()), GetStateString());
+            LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- Merchantnode %s is in %s state, waiting for ping\n",
+                     pubKeyMerchantnode.GetID().ToString(), GetStateString());
             return;
         }
     }
@@ -150,7 +151,8 @@ void CMerchantnode::Check(bool fForce)
         if(!IsPingedWithin(MERCHANTNODE_NEW_START_REQUIRED_SECONDS)) {
             nActiveState = MERCHANTNODE_NEW_START_REQUIRED;
             if(nActiveStatePrev != nActiveState) {
-                LogPrint("merchantnode", "CMerchantnode::Check -- Merchantnode %s is in %s state now\n", HexStr(pubKeyMerchantnode.Raw()), GetStateString());
+                LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- Merchantnode %s is in %s state now\n",
+                         pubKeyMerchantnode.GetID().ToString(), GetStateString());
             }
             return;
         }
@@ -158,13 +160,14 @@ void CMerchantnode::Check(bool fForce)
         bool fWatchdogActive = merchantnodeSync.IsSynced() && merchantnodeman.IsWatchdogActive();
         bool fWatchdogExpired = (fWatchdogActive && ((GetAdjustedTime() - nTimeLastWatchdogVote) > MERCHANTNODE_WATCHDOG_MAX_SECONDS));
 
-        LogPrint("merchantnode", "CMerchantnode::Check -- outpoint=%s, nTimeLastWatchdogVote=%d, GetAdjustedTime()=%d, fWatchdogExpired=%d\n",
-                 HexStr(pubKeyMerchantnode.Raw()), nTimeLastWatchdogVote, GetAdjustedTime(), fWatchdogExpired);
+        LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- outpoint=%s, nTimeLastWatchdogVote=%d, GetAdjustedTime()=%d, fWatchdogExpired=%d\n",
+                 pubKeyMerchantnode.GetID().ToString(), nTimeLastWatchdogVote, GetAdjustedTime(), fWatchdogExpired);
 
         if(fWatchdogExpired) {
             nActiveState = MERCHANTNODE_WATCHDOG_EXPIRED;
             if(nActiveStatePrev != nActiveState) {
-                LogPrint("merchantnode", "CMerchantnode::Check -- Merchantnode %s is in %s state now\n", HexStr(pubKeyMerchantnode.Raw()), GetStateString());
+                LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- Merchantnode %s is in %s state now\n",
+                         pubKeyMerchantnode.GetID().ToString(), GetStateString());
             }
             return;
         }
@@ -172,7 +175,8 @@ void CMerchantnode::Check(bool fForce)
         if(!IsPingedWithin(MERCHANTNODE_EXPIRATION_SECONDS)) {
             nActiveState = MERCHANTNODE_EXPIRED;
             if(nActiveStatePrev != nActiveState) {
-                LogPrint("merchantnode", "CMerchantnode::Check -- Merchantnode %s is in %s state now\n", HexStr(pubKeyMerchantnode.Raw()), GetStateString());
+                LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- Merchantnode %s is in %s state now\n",
+                         pubKeyMerchantnode.GetID().ToString(), GetStateString());
             }
             return;
         }
@@ -181,14 +185,16 @@ void CMerchantnode::Check(bool fForce)
     if(lastPing.sigTime - sigTime < MERCHANTNODE_MIN_MNP_SECONDS) {
         nActiveState = MERCHANTNODE_PRE_ENABLED;
         if(nActiveStatePrev != nActiveState) {
-            LogPrint("merchantnode", "CMerchantnode::Check -- Merchantnode %s is in %s state now\n", HexStr(pubKeyMerchantnode.Raw()), GetStateString());
+            LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- Merchantnode %s is in %s state now\n",
+                     pubKeyMerchantnode.GetID().ToString(), GetStateString());
         }
         return;
     }
 
     nActiveState = MERCHANTNODE_ENABLED; // OK
     if(nActiveStatePrev != nActiveState) {
-        LogPrint("merchantnode", "CMerchantnode::Check -- Merchantnode %s is in %s state now\n", HexStr(pubKeyMerchantnode.Raw()), GetStateString());
+        LogPrint(BCLog::MERCHANTNODE, "CMerchantnode::Check -- Merchantnode %s is in %s state now\n",
+                 pubKeyMerchantnode.GetID().ToString(), GetStateString());
     }
 }
 
@@ -263,7 +269,7 @@ bool CMerchantnodeBroadcast::Create(std::string strService, std::string strMerch
     CService service;
     if (!Lookup(strService.c_str(), service, 0, false))
         return Log(strprintf("Invalid address %s for merchantnode.", strService));
-    int mainnetDefaultPort = Params(CBaseChainParams::MAIN).GetDefaultPort();
+    int mainnetDefaultPort = CreateChainParams(CBaseChainParams::MAIN)->GetDefaultPort();
     if (Params().NetworkIDString() == CBaseChainParams::MAIN) {
         if (service.GetPort() != mainnetDefaultPort)
             return Log(strprintf("Invalid port %u for merchantnode %s, only %d is supported on mainnet.", service.GetPort(), strService, mainnetDefaultPort));
@@ -280,7 +286,7 @@ bool CMerchantnodeBroadcast::Create(const CService& service, const CKey& keyMerc
     // wait for reindex and/or import to finish
     if (fImporting || fReindex) return false;
 
-    LogPrint("merchantnode", "CMerchantnodeBroadcast::Create -- pubKeyMerchantnodeNew.GetID() = %s\n",
+    LogPrint(BCLog::MERCHANTNODE, "CMerchantnodeBroadcast::Create -- pubKeyMerchantnodeNew.GetID() = %s\n",
              pubKeyMerchantnodeNew.GetID().ToString());
 
     auto Log = [&strErrorRet,&mnbRet](std::string sErr)->bool
@@ -293,16 +299,19 @@ bool CMerchantnodeBroadcast::Create(const CService& service, const CKey& keyMerc
 
     CMerchantnodePing mnp(pubKeyMerchantnodeNew);
     if (!mnp.Sign(keyMerchantnodeNew, pubKeyMerchantnodeNew))
-        return Log(strprintf("Failed to sign ping, merchantnode=%s", HexStr(pubKeyMerchantnodeNew.Raw())));
+        return Log(strprintf("Failed to sign ping, merchantnode=%s",
+                             pubKeyMerchantnodeNew.GetID().ToString()));
 
     mnbRet = CMerchantnodeBroadcast(service, pubKeyMerchantnodeNew, hashTPoSContractTx, PROTOCOL_VERSION);
 
     if (!mnbRet.IsValidNetAddr())
-        return Log(strprintf("Invalid IP address, merchantnode=%s", HexStr(pubKeyMerchantnodeNew.Raw())));
+        return Log(strprintf("Invalid IP address, merchantnode=%s",
+                             pubKeyMerchantnodeNew.GetID().ToString()));
 
     mnbRet.lastPing = mnp;
     if (!mnbRet.Sign(keyMerchantnodeNew))
-        return Log(strprintf("Failed to sign broadcast, merchantnode=%s", HexStr(pubKeyMerchantnodeNew.Raw())));
+        return Log(strprintf("Failed to sign broadcast, merchantnode=%s",
+                             pubKeyMerchantnodeNew.GetID().ToString()));
 
     return true;
 }
@@ -315,13 +324,14 @@ bool CMerchantnodeBroadcast::SimpleCheck(int& nDos)
     // make sure addr is valid
     if(!IsValidNetAddr()) {
         LogPrintf("CMerchantnodeBroadcast::SimpleCheck -- Invalid addr, rejected: merchantnode=%s  addr=%s\n",
-                  HexStr(pubKeyMerchantnode.Raw()), addr.ToString());
+                  pubKeyMerchantnode.GetID().ToString(), addr.ToString());
         return false;
     }
 
     // make sure signature isn't in the future (past is OK)
     if (sigTime > GetAdjustedTime() + 60 * 60) {
-        LogPrintf("CMerchantnodeBroadcast::SimpleCheck -- Signature rejected, too far into the future: merchantnode=%s\n", HexStr(pubKeyMerchantnode.Raw()));
+        LogPrintf("CMerchantnodeBroadcast::SimpleCheck -- Signature rejected, too far into the future: merchantnode=%s\n",
+                  pubKeyMerchantnode.GetID().ToString());
         nDos = 1;
         return false;
     }
@@ -332,8 +342,9 @@ bool CMerchantnodeBroadcast::SimpleCheck(int& nDos)
         nActiveState = MERCHANTNODE_EXPIRED;
     }
 
-    if(nProtocolVersion < PROTOCOL_VERSION) {
-        LogPrintf("CMerchantnodeBroadcast::SimpleCheck -- ignoring outdated Merchantnode: merchantnode=%s  nProtocolVersion=%d\n", HexStr(pubKeyMerchantnode.Raw()), nProtocolVersion);
+    if(nProtocolVersion < PRESEGWIT_PROTO_VERSION) {
+        LogPrintf("CMerchantnodeBroadcast::SimpleCheck -- ignoring outdated Merchantnode: merchantnode=%s  nProtocolVersion=%d\n",
+                  pubKeyMerchantnode.GetID().ToString(), nProtocolVersion);
         return false;
     }
 
@@ -346,7 +357,7 @@ bool CMerchantnodeBroadcast::SimpleCheck(int& nDos)
         return false;
     }
 
-    int mainnetDefaultPort = Params(CBaseChainParams::MAIN).GetDefaultPort();
+    int mainnetDefaultPort = CreateChainParams(CBaseChainParams::MAIN)->GetDefaultPort();
     if(Params().NetworkIDString() == CBaseChainParams::MAIN) {
         if(addr.GetPort() != mainnetDefaultPort) return false;
     } else if(addr.GetPort() == mainnetDefaultPort) return false;
@@ -368,7 +379,7 @@ bool CMerchantnodeBroadcast::Update(CMerchantnode* pmn, int& nDos, CConnman& con
     // unless someone is doing something fishy
     if(pmn->sigTime > sigTime) {
         LogPrintf("CMerchantnodeBroadcast::Update -- Bad sigTime %d (existing broadcast is at %d) for Merchantnode %s %s\n",
-                  sigTime, pmn->sigTime, HexStr(pubKeyMerchantnode.Raw()), addr.ToString());
+                  sigTime, pmn->sigTime, pubKeyMerchantnode.GetID().ToString(), addr.ToString());
         return false;
     }
 
@@ -376,7 +387,8 @@ bool CMerchantnodeBroadcast::Update(CMerchantnode* pmn, int& nDos, CConnman& con
 
     // merchantnode is banned by PoSe
     if(pmn->IsPoSeBanned()) {
-        LogPrintf("CMerchantnodeBroadcast::Update -- Banned by PoSe, merchantnode=%s\n", HexStr(pubKeyMerchantnode.Raw()));
+        LogPrintf("CMerchantnodeBroadcast::Update -- Banned by PoSe, merchantnode=%s\n",
+                  pubKeyMerchantnode.GetID().ToString());
         return false;
     }
 
@@ -388,7 +400,8 @@ bool CMerchantnodeBroadcast::Update(CMerchantnode* pmn, int& nDos, CConnman& con
     }
 
     if (!CheckSignature(nDos)) {
-        LogPrintf("CMerchantnodeBroadcast::Update -- CheckSignature() failed, merchantnode=%s\n", HexStr(pubKeyMerchantnode.Raw()));
+        LogPrintf("CMerchantnodeBroadcast::Update -- CheckSignature() failed, merchantnode=%s\n",
+                  pubKeyMerchantnode.GetID().ToString());
         return false;
     }
 
@@ -423,12 +436,12 @@ bool CMerchantnodeBroadcast::Sign(const CKey& keyCollateralAddress)
             pubKeyMerchantnode.GetID().ToString() +
             boost::lexical_cast<std::string>(nProtocolVersion);
 
-    if(!CMessageSigner::SignMessage(strMessage, vchSig, keyCollateralAddress)) {
+    if(!CMessageSigner::SignMessage(strMessage, vchSig, keyCollateralAddress, CPubKey::InputScriptType::SPENDP2PKH)) {
         LogPrintf("CMerchantnodeBroadcast::Sign -- SignMessage() failed\n");
         return false;
     }
 
-    if(!CMessageSigner::VerifyMessage(pubKeyMerchantnode, vchSig, strMessage, strError)) {
+    if(!CMessageSigner::VerifyMessage(pubKeyMerchantnode.GetID(), vchSig, strMessage, strError)) {
         LogPrintf("CMerchantnodeBroadcast::Sign -- VerifyMessage() failed, error: %s\n", strError);
         return false;
     }
@@ -446,9 +459,9 @@ bool CMerchantnodeBroadcast::CheckSignature(int& nDos)
             pubKeyMerchantnode.GetID().ToString() +
             boost::lexical_cast<std::string>(nProtocolVersion);
 
-    LogPrint("merchantnode", "CMerchantnodeBroadcast::CheckSignature -- strMessage: %s  pubKeyMerchantnode address: %s  sig: %s\n", strMessage, CBitcoinAddress(pubKeyMerchantnode.GetID()).ToString(), EncodeBase64(&vchSig[0], vchSig.size()));
+    LogPrint(BCLog::MERCHANTNODE, "CMerchantnodeBroadcast::CheckSignature -- strMessage: %s  pubKeyMerchantnode address: %s  sig: %s\n", strMessage, CBitcoinAddress(pubKeyMerchantnode.GetID()).ToString(), EncodeBase64(&vchSig[0], vchSig.size()));
 
-    if(!CMessageSigner::VerifyMessage(pubKeyMerchantnode, vchSig, strMessage, strError)){
+    if(!CMessageSigner::VerifyMessage(pubKeyMerchantnode.GetID(), vchSig, strMessage, strError)){
         LogPrintf("CMerchantnodeBroadcast::CheckSignature -- Got bad Merchantnode announce signature, error: %s\n", strError);
         nDos = 100;
         return false;
@@ -461,12 +474,15 @@ void CMerchantnodeBroadcast::Relay(CConnman& connman)
 {
     // Do not relay until fully synced
     if(!merchantnodeSync.IsSynced()) {
-        LogPrint("merchantnode", "CMerchantnodeBroadcast::Relay -- won't relay until fully synced\n");
+        LogPrint(BCLog::MERCHANTNODE, "CMerchantnodeBroadcast::Relay -- won't relay until fully synced\n");
         return;
     }
 
     CInv inv(MSG_MERCHANTNODE_ANNOUNCE, GetHash());
-    connman.RelayInv(inv);
+    connman.ForEachNode([&inv](CNode* pnode)
+    {
+        pnode->PushInventory(inv);
+    });
 }
 
 CMerchantnodePing::CMerchantnodePing(const CPubKey &merchantPubKey)
@@ -488,12 +504,12 @@ bool CMerchantnodePing::Sign(const CKey& keyMerchantnode, const CPubKey& pubKeyM
     sigTime = GetAdjustedTime();
     std::string strMessage = merchantPubKey.GetID().ToString() + blockHash.ToString() + boost::lexical_cast<std::string>(sigTime);
 
-    if(!CMessageSigner::SignMessage(strMessage, vchSig, keyMerchantnode)) {
+    if(!CMessageSigner::SignMessage(strMessage, vchSig, keyMerchantnode, CPubKey::InputScriptType::SPENDP2PKH)) {
         LogPrintf("CMerchantnodePing::Sign -- SignMessage() failed\n");
         return false;
     }
 
-    if(!CMessageSigner::VerifyMessage(pubKeyMerchantnode, vchSig, strMessage, strError)) {
+    if(!CMessageSigner::VerifyMessage(pubKeyMerchantnode.GetID(), vchSig, strMessage, strError)) {
         LogPrintf("CMerchantnodePing::Sign -- VerifyMessage() failed, error: %s\n", strError);
         return false;
     }
@@ -508,8 +524,9 @@ bool CMerchantnodePing::CheckSignature(CPubKey& pubKeyMerchantnode, int &nDos)
     std::string strError = "";
     nDos = 0;
 
-    if(!CMessageSigner::VerifyMessage(pubKeyMerchantnode, vchSig, strMessage, strError)) {
-        LogPrintf("CMerchantnodePing::CheckSignature -- Got bad Merchantnode ping signature, merchantnode=%s, error: %s\n", HexStr(merchantPubKey.Raw()), strError);
+    if(!CMessageSigner::VerifyMessage(pubKeyMerchantnode.GetID(), vchSig, strMessage, strError)) {
+        LogPrintf("CMerchantnodePing::CheckSignature -- Got bad Merchantnode ping signature, merchantnode=%s, error: %s\n",
+                  merchantPubKey.GetID().ToString(), strError);
         nDos = 33;
         return false;
     }
@@ -522,7 +539,8 @@ bool CMerchantnodePing::SimpleCheck(int& nDos)
     nDos = 0;
 
     if (sigTime > GetAdjustedTime() + 60 * 60) {
-        LogPrintf("CMerchantnodePing::SimpleCheck -- Signature rejected, too far into the future, merchantnode=%s\n", HexStr(merchantPubKey.Raw()));
+        LogPrintf("CMerchantnodePing::SimpleCheck -- Signature rejected, too far into the future, merchantnode=%s\n",
+                  merchantPubKey.GetID().ToString());
         nDos = 1;
         return false;
     }
@@ -531,13 +549,15 @@ bool CMerchantnodePing::SimpleCheck(int& nDos)
         AssertLockHeld(cs_main);
         BlockMap::iterator mi = mapBlockIndex.find(blockHash);
         if (mi == mapBlockIndex.end()) {
-            LogPrint("merchantnode", "CMerchantnodePing::SimpleCheck -- Merchantnode ping is invalid, unknown block hash: merchantnode=%s blockHash=%s\n", HexStr(merchantPubKey.Raw()), blockHash.ToString());
+            LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::SimpleCheck -- Merchantnode ping is invalid, unknown block hash: merchantnode=%s blockHash=%s\n",
+                     merchantPubKey.GetID().ToString(), blockHash.ToString());
             // maybe we stuck or forked so we shouldn't ban this node, just fail to accept this ping
             // TODO: or should we also request this block?
             return false;
         }
     }
-    LogPrint("merchantnode", "CMerchantnodePing::SimpleCheck -- Merchantnode ping verified: merchantnode=%s  blockHash=%s  sigTime=%d\n", HexStr(merchantPubKey.Raw()), blockHash.ToString(), sigTime);
+    LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::SimpleCheck -- Merchantnode ping verified: merchantnode=%s  blockHash=%s  sigTime=%d\n",
+             merchantPubKey.GetID().ToString(), blockHash.ToString(), sigTime);
     return true;
 }
 
@@ -546,23 +566,29 @@ bool CMerchantnodePing::CheckAndUpdate(CMerchantnode* pmn, bool fFromNewBroadcas
     // don't ban by default
     nDos = 0;
 
-    if (!SimpleCheck(nDos)) {
-        return false;
+    {
+        LOCK(cs_main);
+        if (!SimpleCheck(nDos)) {
+            return false;
+        }
     }
 
     if (pmn == NULL) {
-        LogPrint("merchantnode", "CMerchantnodePing::CheckAndUpdate -- Couldn't find Merchantnode entry, merchantnode=%s\n", HexStr(merchantPubKey.Raw()));
+        LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::CheckAndUpdate -- Couldn't find Merchantnode entry, merchantnode=%s\n",
+                 merchantPubKey.GetID().ToString());
         return false;
     }
 
     if(!fFromNewBroadcast) {
         if (pmn->IsUpdateRequired()) {
-            LogPrint("merchantnode", "CMerchantnodePing::CheckAndUpdate -- merchantnode protocol is outdated, merchantnode=%s\n", HexStr(merchantPubKey.Raw()));
+            LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::CheckAndUpdate -- merchantnode protocol is outdated, merchantnode=%s\n",
+                     merchantPubKey.GetID().ToString());
             return false;
         }
 
         if (pmn->IsNewStartRequired()) {
-            LogPrint("merchantnode", "CMerchantnodePing::CheckAndUpdate -- merchantnode is completely expired, new start is required, merchantnode=%s\n", HexStr(merchantPubKey.Raw()));
+            LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::CheckAndUpdate -- merchantnode is completely expired, new start is required, merchantnode=%s\n",
+                     merchantPubKey.GetID().ToString());
             return false;
         }
     }
@@ -571,19 +597,22 @@ bool CMerchantnodePing::CheckAndUpdate(CMerchantnode* pmn, bool fFromNewBroadcas
         LOCK(cs_main);
         BlockMap::iterator mi = mapBlockIndex.find(blockHash);
         if ((*mi).second && (*mi).second->nHeight < chainActive.Height() - 24) {
-            LogPrintf("CMerchantnodePing::CheckAndUpdate -- Merchantnode ping is invalid, block hash is too old: merchantnode=%s  blockHash=%s\n", HexStr(merchantPubKey.Raw()), blockHash.ToString());
+            LogPrintf("CMerchantnodePing::CheckAndUpdate -- Merchantnode ping is invalid, block hash is too old: merchantnode=%s  blockHash=%s\n",
+                      merchantPubKey.GetID().ToString(), blockHash.ToString());
             // nDos = 1;
             return false;
         }
     }
 
-    LogPrint("merchantnode", "CMerchantnodePing::CheckAndUpdate -- New ping: merchantnode=%s  blockHash=%s  sigTime=%d\n", HexStr(merchantPubKey.Raw()), blockHash.ToString(), sigTime);
+    LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::CheckAndUpdate -- New ping: merchantnode=%s  blockHash=%s  sigTime=%d\n",
+             merchantPubKey.GetID().ToString(), blockHash.ToString(), sigTime);
 
     // LogPrintf("mnping - Found corresponding mn for vin: %s\n", HexStr(pubKeyMerchantnode.Raw()));
     // update only if there is no known ping for this merchantnode or
     // last ping was more then MERCHANTNODE_MIN_MNP_SECONDS-60 ago comparing to this one
     if (pmn->IsPingedWithin(MERCHANTNODE_MIN_MNP_SECONDS - 60, sigTime)) {
-        LogPrint("merchantnode", "CMerchantnodePing::CheckAndUpdate -- Merchantnode ping arrived too early, merchantnode=%s\n", HexStr(merchantPubKey.Raw()));
+        LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::CheckAndUpdate -- Merchantnode ping arrived too early, merchantnode=%s\n",
+                 merchantPubKey.GetID().ToString());
         //nDos = 1; //disable, this is happening frequently and causing banned peers
         return false;
     }
@@ -596,12 +625,14 @@ bool CMerchantnodePing::CheckAndUpdate(CMerchantnode* pmn, bool fFromNewBroadcas
     // (NOTE: assuming that MERCHANTNODE_EXPIRATION_SECONDS/2 should be enough to finish mn list sync)
     if(!merchantnodeSync.IsMerchantnodeListSynced() && !pmn->IsPingedWithin(MERCHANTNODE_EXPIRATION_SECONDS/2)) {
         // let's bump sync timeout
-        LogPrint("merchantnode", "CMerchantnodePing::CheckAndUpdate -- bumping sync timeout, merchantnode=%s\n", HexStr(merchantPubKey.Raw()));
+        LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::CheckAndUpdate -- bumping sync timeout, merchantnode=%s\n",
+                 merchantPubKey.GetID().ToString());
         merchantnodeSync.BumpAssetLastTime("CMerchantnodePing::CheckAndUpdate");
     }
 
     // let's store this ping as the last one
-    LogPrint("merchantnode", "CMerchantnodePing::CheckAndUpdate -- Merchantnode ping accepted, merchantnode=%s\n", HexStr(merchantPubKey.Raw()));
+    LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::CheckAndUpdate -- Merchantnode ping accepted, merchantnode=%s\n",
+             merchantPubKey.GetID().ToString());
     pmn->lastPing = *this;
 
     // and update merchantnodeman.mapSeenMerchantnodeBroadcast.lastPing which is probably outdated
@@ -616,7 +647,8 @@ bool CMerchantnodePing::CheckAndUpdate(CMerchantnode* pmn, bool fFromNewBroadcas
     // relay ping for nodes in ENABLED/EXPIRED/WATCHDOG_EXPIRED state only, skip everyone else
     if (!pmn->IsEnabled() && !pmn->IsExpired() && !pmn->IsWatchdogExpired()) return false;
 
-    LogPrint("merchantnode", "CMerchantnodePing::CheckAndUpdate -- Merchantnode ping acceepted and relayed, merchantnode=%s\n", HexStr(merchantPubKey.Raw()));
+    LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::CheckAndUpdate -- Merchantnode ping acceepted and relayed, merchantnode=%s\n",
+             merchantPubKey.GetID().ToString());
     Relay(connman);
 
     return true;
@@ -626,16 +658,28 @@ void CMerchantnodePing::Relay(CConnman& connman)
 {
     // Do not relay until fully synced
     if(!merchantnodeSync.IsSynced()) {
-        LogPrint("merchantnode", "CMerchantnodePing::Relay -- won't relay until fully synced\n");
+        LogPrint(BCLog::MERCHANTNODE, "CMerchantnodePing::Relay -- won't relay until fully synced\n");
         return;
     }
 
     CInv inv(MSG_MERCHANTNODE_PING, GetHash());
-    connman.RelayInv(inv);
+    connman.ForEachNode([&inv](CNode* pnode)
+    {
+        pnode->PushInventory(inv);
+    });
 }
 
 void CMerchantnode::UpdateWatchdogVoteTime(uint64_t nVoteTime)
 {
     LOCK(cs);
     nTimeLastWatchdogVote = (nVoteTime == 0) ? GetAdjustedTime() : nVoteTime;
+}
+
+void CMerchantnodeVerification::Relay() const
+{
+    CInv inv(MSG_MERCHANTNODE_VERIFY, GetHash());
+    g_connman->ForEachNode([&inv](CNode* pnode)
+    {
+        pnode->PushInventory(inv);
+    });
 }

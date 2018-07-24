@@ -10,9 +10,9 @@
 #include <list>
 #include <set>
 
-#include "serialize.h"
+#include <serialize.h>
 
-#include "cachemap.h"
+#include <cachemap.h>
 
 /**
  * Map like container that keeps the N most recently added items
@@ -207,7 +207,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion)
+    inline void SerializationOp(Stream& s, Operation ser_action)
     {
         READWRITE(nMaxSize);
         READWRITE(nCurrentSize);

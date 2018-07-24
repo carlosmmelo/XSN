@@ -2,19 +2,15 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "chainparams.h"
-#include "dsnotificationinterface.h"
-#include "instantx.h"
-#include "governance.h"
-#include "masternodeman.h"
-#include "masternode-payments.h"
-#include "masternode-sync.h"
-#include "tpos/merchantnode-sync.h"
-#include "tpos/merchantnodeman.h"
-#include "privatesend.h"
-#ifdef ENABLE_WALLET
-#include "privatesend-client.h"
-#endif // ENABLE_WALLET
+#include <chainparams.h>
+#include <dsnotificationinterface.h>
+#include <instantx.h>
+#include <governance/governance.h>
+#include <masternodeman.h>
+#include <masternode-payments.h>
+#include <masternode-sync.h>
+#include <tpos/merchantnode-sync.h>
+#include <tpos/merchantnodeman.h>
 
 void CDSNotificationInterface::InitializeCurrentBlockTip()
 {
@@ -42,25 +38,42 @@ void CDSNotificationInterface::UpdatedBlockTip(const CBlockIndex *pindexNew, con
     masternodeSync.UpdatedBlockTip(pindexNew, fInitialDownload, connman);
     merchantnodeSync.UpdatedBlockTip(pindexNew, fInitialDownload, connman);
 
-    // Update global DIP0001 activation status
-    fDIP0001ActiveAtTip = (VersionBitsState(pindexNew, Params().GetConsensus(), Consensus::DEPLOYMENT_DIP0001, versionbitscache) == THRESHOLD_ACTIVE);
-
     if (fInitialDownload)
         return;
 
     mnodeman.UpdatedBlockTip(pindexNew);
     merchantnodeman.UpdatedBlockTip(pindexNew);
-    CPrivateSend::UpdatedBlockTip(pindexNew);
-#ifdef ENABLE_WALLET
-    privateSendClient.UpdatedBlockTip(pindexNew);
-#endif // ENABLE_WALLET
+//    CPrivateSend::UpdatedBlockTip(pindexNew);
+//#ifdef ENABLE_WALLET
+//    privateSendClient.UpdatedBlockTip(pindexNew);
+//#endif // ENABLE_WALLET
     instantsend.UpdatedBlockTip(pindexNew);
     mnpayments.UpdatedBlockTip(pindexNew, connman);
     governance.UpdatedBlockTip(pindexNew, connman);
 }
 
-void CDSNotificationInterface::SyncTransaction(const CTransaction &tx, const CBlock *pblock)
+void CDSNotificationInterface::TransactionAddedToMempool(const CTransactionRef &ptxn)
 {
-    instantsend.SyncTransaction(tx, pblock);
-    CPrivateSend::SyncTransaction(tx, pblock);
+    instantsend.SyncTransaction(ptxn, nullptr);
+}
+
+void CDSNotificationInterface::BlockConnected(const std::shared_ptr<const CBlock> &block, const CBlockIndex *pindex, const std::vector<CTransactionRef> &txnConflicted)
+{
+    for(const auto &tx : block->vtx)
+    {
+        instantsend.SyncTransaction(tx, pindex);
+    }
+
+    for(const auto &tx : txnConflicted)
+    {
+        instantsend.SyncTransaction(tx, nullptr);
+    }
+}
+
+void CDSNotificationInterface::BlockDisconnected(const std::shared_ptr<const CBlock> &block)
+{
+    for(const auto &tx : block->vtx)
+    {
+        instantsend.SyncTransaction(tx, nullptr);
+    }
 }

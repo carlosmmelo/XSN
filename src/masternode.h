@@ -5,13 +5,14 @@
 #ifndef MASTERNODE_H
 #define MASTERNODE_H
 
-#include "key.h"
-#include "validation.h"
-#include "spork.h"
+#include <key.h>
+#include <validation.h>
+#include <spork.h>
 
 class CMasternode;
 class CMasternodeBroadcast;
 class CConnman;
+class CWallet;
 
 static const int MASTERNODE_CHECK_SECONDS               =   5;
 static const int MASTERNODE_MIN_MNB_SECONDS             =   5 * 60;
@@ -47,7 +48,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(vin);
         READWRITE(blockHash);
         READWRITE(sigTime);
@@ -174,7 +175,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         LOCK(cs);
         READWRITE(vin);
         READWRITE(addr);
@@ -238,18 +239,7 @@ public:
                 nActiveStateIn == MASTERNODE_WATCHDOG_EXPIRED;
     }
 
-    bool IsValidForPayment() const
-    {
-        if(nActiveState == MASTERNODE_ENABLED) {
-            return true;
-        }
-        if(!sporkManager.IsSporkActive(SPORK_14_REQUIRE_SENTINEL_FLAG) &&
-           (nActiveState == MASTERNODE_WATCHDOG_EXPIRED)) {
-            return true;
-        }
-
-        return false;
-    }
+    bool IsValidForPayment() const;
 
     /// Is the input associated with collateral public key? (and there is 1000 XSN - checking if valid masternode)
     bool IsInputAssociatedWithPubkey() const;
@@ -324,7 +314,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(vin);
         READWRITE(addr);
         READWRITE(pubKeyCollateralAddress);
@@ -346,7 +336,7 @@ public:
 
     /// Create Masternode broadcast, needs to be relayed manually after that
     static bool Create(const COutPoint& outpoint, const CService& service, const CKey& keyCollateralAddressNew, const CPubKey& pubKeyCollateralAddressNew, const CKey& keyMasternodeNew, const CPubKey& pubKeyMasternodeNew, std::string &strErrorRet, CMasternodeBroadcast &mnbRet);
-    static bool Create(std::string strService, std::string strKey, std::string strTxHash, std::string strOutputIndex, std::string& strErrorRet, CMasternodeBroadcast &mnbRet, bool fOffline = false);
+    static bool Create(CWallet *wallet, std::string strService, std::string strKey, std::string strTxHash, std::string strOutputIndex, std::string& strErrorRet, CMasternodeBroadcast &mnbRet, bool fOffline = false);
 
     bool SimpleCheck(int& nDos);
     bool Update(CMasternode* pmn, int& nDos, CConnman& connman);
@@ -379,7 +369,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(vin1);
         READWRITE(vin2);
         READWRITE(addr);
@@ -400,11 +390,7 @@ public:
         return ss.GetHash();
     }
 
-    void Relay() const
-    {
-        CInv inv(MSG_MASTERNODE_VERIFY, GetHash());
-        g_connman->RelayInv(inv);
-    }
+    void Relay() const;
 };
 
 #endif

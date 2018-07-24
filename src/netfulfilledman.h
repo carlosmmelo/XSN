@@ -5,10 +5,10 @@
 #ifndef NETFULFILLEDMAN_H
 #define NETFULFILLEDMAN_H
 
-#include "netbase.h"
-#include "protocol.h"
-#include "serialize.h"
-#include "sync.h"
+#include <netbase.h>
+#include <protocol.h>
+#include <serialize.h>
+#include <sync.h>
 
 class CNetFulfilledRequestManager;
 extern CNetFulfilledRequestManager netfulfilledman;
@@ -31,7 +31,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         LOCK(cs_mapFulfilledRequests);
         READWRITE(mapFulfilledRequests);
     }

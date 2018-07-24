@@ -5,8 +5,8 @@
 #ifndef MERCHANTNODEMAN_H
 #define MERCHANTNODEMAN_H
 
-#include "merchantnode.h"
-#include "sync.h"
+#include <tpos/merchantnode.h>
+#include <sync.h>
 
 using namespace std;
 
@@ -77,7 +77,7 @@ public:
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
-    inline void SerializationOp(Stream& s, Operation ser_action, int nType, int nVersion) {
+    inline void SerializationOp(Stream& s, Operation ser_action) {
         LOCK(cs);
         std::string strVersion;
         if(ser_action.ForRead()) {
@@ -152,7 +152,7 @@ public:
     void ProcessMerchantnodeConnections(CConnman& connman);
     std::pair<CService, std::set<uint256> > PopScheduledMnbRequestConnection();
 
-    void ProcessMessage(CNode* pfrom, std::string& strCommand, CDataStream& vRecv, CConnman& connman);
+    void ProcessMessage(CNode* pfrom, const string &strCommand, CDataStream& vRecv, CConnman& connman);
 
     void DoFullVerificationStep(CConnman& connman);
     void CheckSameAddr();

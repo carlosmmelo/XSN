@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2015 The Bitcoin Core developers
+// Copyright (c) 2011-2017 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -6,10 +6,10 @@
 #define BITCOIN_QT_BITCOINGUI_H
 
 #if defined(HAVE_CONFIG_H)
-#include "config/xsn-config.h"
+#include <config/xsn-config.h>
 #endif
 
-#include "amount.h"
+#include <amount.h>
 
 #include <QLabel>
 #include <QMainWindow>
@@ -18,6 +18,10 @@
 #include <QPoint>
 #include <QPushButton>
 #include <QSystemTrayIcon>
+#include <QComboBox>
+#include <interfaces/node.h>
+#include <interfaces/handler.h>
+#include <memory>
 
 class ClientModel;
 class NetworkStyle;
@@ -35,6 +39,11 @@ class MasternodeList;
 
 class CWallet;
 
+namespace interfaces {
+class Handler;
+class Node;
+}
+
 QT_BEGIN_NAMESPACE
 class QAction;
 class QProgressBar;
@@ -50,10 +59,9 @@ class BitcoinGUI : public QMainWindow
     Q_OBJECT
 
 public:
-    static const QString DEFAULT_WALLET;
     static const std::string DEFAULT_UIPLATFORM;
 
-    explicit BitcoinGUI(const PlatformStyle *platformStyle, const NetworkStyle *networkStyle, QWidget *parent = 0);
+    explicit BitcoinGUI(interfaces::Node& node, const PlatformStyle *platformStyle, const NetworkStyle *networkStyle, QWidget *parent = 0);
     ~BitcoinGUI();
 
     /** Set the client model.
@@ -66,8 +74,7 @@ public:
         The wallet model represents a bitcoin wallet, and offers access to the list of transactions, address book and sending
         functionality.
     */
-    bool addWallet(const QString& name, WalletModel *walletModel);
-    bool setCurrentWallet(const QString& name);
+    bool addWallet(WalletModel *walletModel);
     void removeAllWallets();
 #endif // ENABLE_WALLET
     bool enableWallet;
@@ -81,6 +88,9 @@ protected:
     bool eventFilter(QObject *object, QEvent *event);
 
 private:
+    interfaces::Node& m_node;
+    std::unique_ptr<interfaces::Handler> m_handler_message_box;
+    std::unique_ptr<interfaces::Handler> m_handler_question;
     ClientModel *clientModel;
     WalletFrame *walletFrame;
 
@@ -95,6 +105,7 @@ private:
     QProgressDialog *progressDialog;
 
     QMenuBar *appMenuBar;
+    QToolBar *appToolBar;
     QAction *overviewAction;
     QAction *historyAction;
     QAction *masternodeAction;
@@ -130,6 +141,9 @@ private:
     QAction *openAction;
     QAction *showHelpMessageAction;
     QAction *showPrivateSendHelpAction;
+
+    QLabel *m_wallet_selector_label;
+    QComboBox *m_wallet_selector;
 
     QSystemTrayIcon *trayIcon;
     QMenu *trayIconMenu;
@@ -182,7 +196,6 @@ public Q_SLOTS:
     void setNumConnections(int count);
     /** Set network state shown in the UI */
     void setNetworkActive(bool networkActive);
-    /** Get restart command-line parameters and request restart */
     void handleRestart(QStringList args);
     /** Set number of blocks and last block date shown in the UI */
     void setNumBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, bool headers);
@@ -196,14 +209,17 @@ public Q_SLOTS:
                             @see CClientUIInterface::MessageBoxFlags
        @param[in] ret       pointer to a bool that will be modified to whether Ok was clicked (modal only)
     */
-    void message(const QString &title, const QString &message, unsigned int style, bool *ret = NULL);
+    void message(const QString &title, const QString &message, unsigned int style, bool *ret = nullptr);
 
 #ifdef ENABLE_WALLET
     /** Set the hd-enabled status as shown in the UI.
      @param[in] status            current hd enabled status
      @see WalletModel::EncryptionStatus
      */
+    bool setCurrentWallet(const QString& name);
     void setHDStatus(int hdEnabled);
+
+    void updateWalletStatus();
 
     void setStakingStatus();
 
@@ -216,7 +232,7 @@ public Q_SLOTS:
     bool handlePaymentRequest(const SendCoinsRecipient& recipient);
 
     /** Show incoming transaction notification for new transactions. */
-    void incomingTransaction(const QString& date, int unit, const CAmount& amount, const QString& type, const QString& address, const QString& label);
+    void incomingTransaction(const QString& date, int unit, const CAmount& amount, const QString& type, const QString& address, const QString& label, const QString& walletName);
 #endif // ENABLE_WALLET
 
 private Q_SLOTS:
@@ -249,6 +265,8 @@ private Q_SLOTS:
     void aboutClicked();
     /** Show debug window */
     void showDebugWindow();
+    /** Show debug window and set focus to the console */
+    void showDebugWindowActivateConsole();
 
     /** Show debug window and set focus to the appropriate tab */
     void showInfo();

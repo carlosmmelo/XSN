@@ -2,11 +2,12 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include "chainparams.h"
-#include "validation.h"
-#include "messagesigner.h"
-#include "net_processing.h"
-#include "spork.h"
+#include <chainparams.h>
+#include <validation.h>
+#include <messagesigner.h>
+#include <net_processing.h>
+#include <spork.h>
+#include <netmessagemaker.h>
 
 #include <boost/lexical_cast.hpp>
 
@@ -17,10 +18,21 @@ CSporkManager sporkManager;
 
 std::map<uint256, CSporkMessage> mapSporks;
 
-void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStream& vRecv, CConnman& connman)
-{
-    if(fLiteMode) return; // disable all XSN specific functionality
+namespace Spork {
+static const int64_t SPORK_2_INSTANTSEND_ENABLED_DEFAULT                = 0;            // ON
+static const int64_t SPORK_3_INSTANTSEND_BLOCK_FILTERING_DEFAULT        = 0;            // ON
+static const int64_t SPORK_5_INSTANTSEND_MAX_VALUE_DEFAULT              = 1000;         // 1000 XSN
+static const int64_t SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT_DEFAULT     = 4070908800ULL;// OFF
+static const int64_t SPORK_9_SUPERBLOCKS_ENABLED_DEFAULT                = 0;            // ON
+static const int64_t SPORK_10_MASTERNODE_PAY_UPDATED_NODES_DEFAULT      = 4070908800ULL;// OFF
+static const int64_t SPORK_12_RECONSIDER_BLOCKS_DEFAULT                 = 0;            // 0 BLOCKS
+static const int64_t SPORK_13_OLD_SUPERBLOCK_FLAG_DEFAULT               = 4070908800ULL;// OFF
+static const int64_t SPORK_14_REQUIRE_SENTINEL_FLAG_DEFAULT             = 4070908800ULL;// OFF
+static const int64_t SPORK_15_TPOS_ENABLED_FLAG_DEFAULT                 = 0;            // ON
+}
 
+void CSporkManager::ProcessSpork(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, CConnman *connman)
+{
     if (strCommand == NetMsgType::SPORK) {
 
         CSporkMessage spork;
@@ -33,22 +45,25 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
             LOCK(cs_main);
             pfrom->setAskFor.erase(hash);
             if(!chainActive.Tip()) return;
-            strLogMsg = strprintf("SPORK -- hash: %s id: %d value: %10d bestHeight: %d peer=%d", hash.ToString(), spork.nSporkID, spork.nValue, chainActive.Height(), pfrom->id);
+            strLogMsg = strprintf("SPORK -- hash: %s id: %d value: %10d bestHeight: %d peer=%d",
+                                  hash.ToString(), spork.nSporkID,
+                                  spork.nValue, chainActive.Height(),
+                                  pfrom->GetId());
         }
 
         if(mapSporksActive.count(spork.nSporkID)) {
             if (mapSporksActive[spork.nSporkID].nTimeSigned >= spork.nTimeSigned) {
-                LogPrint("spork", "%s seen\n", strLogMsg);
+                LogPrint(BCLog::SPORK, "%s seen\n", strLogMsg);
                 return;
             } else {
-                LogPrintf("%s updated\n", strLogMsg);
+                LogPrint(BCLog::SPORK, "%s updated\n", strLogMsg);
             }
         } else {
-            LogPrintf("%s new\n", strLogMsg);
+            LogPrintf("%s %s new\n", __func__, strLogMsg);
         }
 
         if(!spork.CheckSignature()) {
-            LogPrintf("CSporkManager::ProcessSpork -- invalid signature\n");
+            LogPrint(BCLog::SPORK, "ProcessSpork -- invalid signature\n");
             Misbehaving(pfrom->GetId(), 100);
             return;
         }
@@ -64,8 +79,10 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
 
         std::map<int, CSporkMessage>::iterator it = mapSporksActive.begin();
 
+        const CNetMsgMaker msgMaker(pfrom->GetSendVersion());
+
         while(it != mapSporksActive.end()) {
-            connman.PushMessage(pfrom, NetMsgType::SPORK, it->second);
+            connman->PushMessage(pfrom, msgMaker.Make(NetMsgType::SPORK, it->second));
             it++;
         }
     }
@@ -75,33 +92,33 @@ void CSporkManager::ProcessSpork(CNode* pfrom, std::string& strCommand, CDataStr
 void CSporkManager::ExecuteSpork(int nSporkID, int nValue)
 {
     //correct fork via spork technology
-    if(nSporkID == SPORK_12_RECONSIDER_BLOCKS && nValue > 0) {
+    if(nSporkID == Spork::SPORK_12_RECONSIDER_BLOCKS && nValue > 0) {
         // allow to reprocess 24h of blocks max, which should be enough to resolve any issues
-        int64_t nMaxBlocks = 576;
+        int64_t nMaxBlocks = 60 * 24;
         // this potentially can be a heavy operation, so only allow this to be executed once per 10 minutes
         int64_t nTimeout = 10 * 60;
 
         static int64_t nTimeExecuted = 0; // i.e. it was never executed before
 
         if(GetTime() - nTimeExecuted < nTimeout) {
-            LogPrint("spork", "CSporkManager::ExecuteSpork -- ERROR: Trying to reconsider blocks, too soon - %d/%d\n", GetTime() - nTimeExecuted, nTimeout);
+            LogPrint(BCLog::SPORK, "CSporkManager::ExecuteSpork -- ERROR: Trying to reconsider blocks, too soon - %d/%d\n", GetTime() - nTimeExecuted, nTimeout);
             return;
         }
 
         if(nValue > nMaxBlocks) {
-            LogPrintf("CSporkManager::ExecuteSpork -- ERROR: Trying to reconsider too many blocks %d/%d\n", nValue, nMaxBlocks);
+            LogPrintf("%s -- ERROR: Trying to reconsider too many blocks %d/%d\n", __func__, nValue, nMaxBlocks);
             return;
         }
 
 
-        LogPrintf("CSporkManager::ExecuteSpork -- Reconsider Last %d Blocks\n", nValue);
+        LogPrintf("%s -- Reconsider Last %d Blocks\n", __func__, nValue);
 
         ReprocessBlocks(nValue);
         nTimeExecuted = GetTime();
     }
 }
 
-bool CSporkManager::UpdateSpork(int nSporkID, int64_t nValue, CConnman& connman)
+bool CSporkManager::UpdateSpork(int nSporkID, int64_t nValue, CConnman *connman)
 {
 
     CSporkMessage spork = CSporkMessage(nSporkID, nValue, GetAdjustedTime());
@@ -124,21 +141,22 @@ bool CSporkManager::IsSporkActive(int nSporkID)
     if(mapSporksActive.count(nSporkID)){
         r = mapSporksActive[nSporkID].nValue;
     } else {
+        using namespace Spork;
         switch (nSporkID) {
-            case SPORK_2_INSTANTSEND_ENABLED:               r = SPORK_2_INSTANTSEND_ENABLED_DEFAULT; break;
-            case SPORK_3_INSTANTSEND_BLOCK_FILTERING:       r = SPORK_3_INSTANTSEND_BLOCK_FILTERING_DEFAULT; break;
-            case SPORK_5_INSTANTSEND_MAX_VALUE:             r = SPORK_5_INSTANTSEND_MAX_VALUE_DEFAULT; break;
-            case SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT:    r = SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT_DEFAULT; break;
-            case SPORK_9_SUPERBLOCKS_ENABLED:               r = SPORK_9_SUPERBLOCKS_ENABLED_DEFAULT; break;
-            case SPORK_10_MASTERNODE_PAY_UPDATED_NODES:     r = SPORK_10_MASTERNODE_PAY_UPDATED_NODES_DEFAULT; break;
-            case SPORK_12_RECONSIDER_BLOCKS:                r = SPORK_12_RECONSIDER_BLOCKS_DEFAULT; break;
-            case SPORK_13_OLD_SUPERBLOCK_FLAG:              r = SPORK_13_OLD_SUPERBLOCK_FLAG_DEFAULT; break;
-            case SPORK_14_REQUIRE_SENTINEL_FLAG:            r = SPORK_14_REQUIRE_SENTINEL_FLAG_DEFAULT; break;
-            case SPORK_15_TPOS_ENABLED:                     r = SPORK_15_TPOS_ENABLED_FLAG_DEFAULT; break;
-            default:
-                LogPrint("spork", "CSporkManager::IsSporkActive -- Unknown Spork ID %d\n", nSporkID);
-                r = 4070908800ULL; // 2099-1-1 i.e. off by default
-                break;
+        case SPORK_2_INSTANTSEND_ENABLED:               r = SPORK_2_INSTANTSEND_ENABLED_DEFAULT; break;
+        case SPORK_3_INSTANTSEND_BLOCK_FILTERING:       r = SPORK_3_INSTANTSEND_BLOCK_FILTERING_DEFAULT; break;
+        case SPORK_5_INSTANTSEND_MAX_VALUE:             r = SPORK_5_INSTANTSEND_MAX_VALUE_DEFAULT; break;
+        case SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT:    r = SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT_DEFAULT; break;
+        case SPORK_9_SUPERBLOCKS_ENABLED:               r = SPORK_9_SUPERBLOCKS_ENABLED_DEFAULT; break;
+        case SPORK_10_MASTERNODE_PAY_UPDATED_NODES:     r = SPORK_10_MASTERNODE_PAY_UPDATED_NODES_DEFAULT; break;
+        case SPORK_12_RECONSIDER_BLOCKS:                r = SPORK_12_RECONSIDER_BLOCKS_DEFAULT; break;
+        case SPORK_13_OLD_SUPERBLOCK_FLAG:              r = SPORK_13_OLD_SUPERBLOCK_FLAG_DEFAULT; break;
+        case SPORK_14_REQUIRE_SENTINEL_FLAG:            r = SPORK_14_REQUIRE_SENTINEL_FLAG_DEFAULT; break;
+        case SPORK_15_TPOS_ENABLED:                     r = SPORK_15_TPOS_ENABLED_FLAG_DEFAULT; break;
+        default:
+            LogPrint(BCLog::SPORK, "CSporkManager::IsSporkActive -- Unknown Spork ID %d\n", nSporkID);
+            r = 4070908800ULL; // 2099-1-1 i.e. off by default
+            break;
         }
     }
 
@@ -151,26 +169,29 @@ int64_t CSporkManager::GetSporkValue(int nSporkID)
     if (mapSporksActive.count(nSporkID))
         return mapSporksActive[nSporkID].nValue;
 
+    using namespace Spork;
+
     switch (nSporkID) {
-        case SPORK_2_INSTANTSEND_ENABLED:               return SPORK_2_INSTANTSEND_ENABLED_DEFAULT;
-        case SPORK_3_INSTANTSEND_BLOCK_FILTERING:       return SPORK_3_INSTANTSEND_BLOCK_FILTERING_DEFAULT;
-        case SPORK_5_INSTANTSEND_MAX_VALUE:             return SPORK_5_INSTANTSEND_MAX_VALUE_DEFAULT;
-        case SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT:    return SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT_DEFAULT;
-        case SPORK_9_SUPERBLOCKS_ENABLED:               return SPORK_9_SUPERBLOCKS_ENABLED_DEFAULT;
-        case SPORK_10_MASTERNODE_PAY_UPDATED_NODES:     return SPORK_10_MASTERNODE_PAY_UPDATED_NODES_DEFAULT;
-        case SPORK_12_RECONSIDER_BLOCKS:                return SPORK_12_RECONSIDER_BLOCKS_DEFAULT;
-        case SPORK_13_OLD_SUPERBLOCK_FLAG:              return SPORK_13_OLD_SUPERBLOCK_FLAG_DEFAULT;
-        case SPORK_14_REQUIRE_SENTINEL_FLAG:            return SPORK_14_REQUIRE_SENTINEL_FLAG_DEFAULT;
-        case SPORK_15_TPOS_ENABLED_FLAG_DEFAULT:            return SPORK_15_TPOS_ENABLED_FLAG_DEFAULT;
-        default:
-            LogPrint("spork", "CSporkManager::GetSporkValue -- Unknown Spork ID %d\n", nSporkID);
-            return -1;
+    case SPORK_2_INSTANTSEND_ENABLED:               return SPORK_2_INSTANTSEND_ENABLED_DEFAULT;
+    case SPORK_3_INSTANTSEND_BLOCK_FILTERING:       return SPORK_3_INSTANTSEND_BLOCK_FILTERING_DEFAULT;
+    case SPORK_5_INSTANTSEND_MAX_VALUE:             return SPORK_5_INSTANTSEND_MAX_VALUE_DEFAULT;
+    case SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT:    return SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT_DEFAULT;
+    case SPORK_9_SUPERBLOCKS_ENABLED:               return SPORK_9_SUPERBLOCKS_ENABLED_DEFAULT;
+    case SPORK_10_MASTERNODE_PAY_UPDATED_NODES:     return SPORK_10_MASTERNODE_PAY_UPDATED_NODES_DEFAULT;
+    case SPORK_12_RECONSIDER_BLOCKS:                return SPORK_12_RECONSIDER_BLOCKS_DEFAULT;
+    case SPORK_13_OLD_SUPERBLOCK_FLAG:              return SPORK_13_OLD_SUPERBLOCK_FLAG_DEFAULT;
+    case SPORK_14_REQUIRE_SENTINEL_FLAG:            return SPORK_14_REQUIRE_SENTINEL_FLAG_DEFAULT;
+    case SPORK_15_TPOS_ENABLED:        return SPORK_15_TPOS_ENABLED_FLAG_DEFAULT;
+    default:
+        LogPrint(BCLog::SPORK, "CSporkManager::GetSporkValue -- Unknown Spork ID %d\n", nSporkID);
+        return -1;
     }
 
 }
 
 int CSporkManager::GetSporkIDByName(std::string strName)
 {
+    using namespace Spork;
     if (strName == "SPORK_2_INSTANTSEND_ENABLED")               return SPORK_2_INSTANTSEND_ENABLED;
     if (strName == "SPORK_3_INSTANTSEND_BLOCK_FILTERING")       return SPORK_3_INSTANTSEND_BLOCK_FILTERING;
     if (strName == "SPORK_5_INSTANTSEND_MAX_VALUE")             return SPORK_5_INSTANTSEND_MAX_VALUE;
@@ -182,26 +203,27 @@ int CSporkManager::GetSporkIDByName(std::string strName)
     if (strName == "SPORK_14_REQUIRE_SENTINEL_FLAG")            return SPORK_14_REQUIRE_SENTINEL_FLAG;
     if (strName == "SPORK_15_TPOS_ENABLED")                     return SPORK_15_TPOS_ENABLED;
 
-    LogPrint("spork", "CSporkManager::GetSporkIDByName -- Unknown Spork name '%s'\n", strName);
+    LogPrint(BCLog::SPORK, "CSporkManager::GetSporkIDByName -- Unknown Spork name '%s'\n", strName);
     return -1;
 }
 
 std::string CSporkManager::GetSporkNameByID(int nSporkID)
 {
+    using namespace Spork;
     switch (nSporkID) {
-        case SPORK_2_INSTANTSEND_ENABLED:               return "SPORK_2_INSTANTSEND_ENABLED";
-        case SPORK_3_INSTANTSEND_BLOCK_FILTERING:       return "SPORK_3_INSTANTSEND_BLOCK_FILTERING";
-        case SPORK_5_INSTANTSEND_MAX_VALUE:             return "SPORK_5_INSTANTSEND_MAX_VALUE";
-        case SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT:    return "SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT";
-        case SPORK_9_SUPERBLOCKS_ENABLED:               return "SPORK_9_SUPERBLOCKS_ENABLED";
-        case SPORK_10_MASTERNODE_PAY_UPDATED_NODES:     return "SPORK_10_MASTERNODE_PAY_UPDATED_NODES";
-        case SPORK_12_RECONSIDER_BLOCKS:                return "SPORK_12_RECONSIDER_BLOCKS";
-        case SPORK_13_OLD_SUPERBLOCK_FLAG:              return "SPORK_13_OLD_SUPERBLOCK_FLAG";
-        case SPORK_14_REQUIRE_SENTINEL_FLAG:            return "SPORK_14_REQUIRE_SENTINEL_FLAG";
-        case SPORK_15_TPOS_ENABLED:                     return "SPORK_15_TPOS_ENABLED";
-        default:
-            LogPrint("spork", "CSporkManager::GetSporkNameByID -- Unknown Spork ID %d\n", nSporkID);
-            return "Unknown";
+    case SPORK_2_INSTANTSEND_ENABLED:               return "SPORK_2_INSTANTSEND_ENABLED";
+    case SPORK_3_INSTANTSEND_BLOCK_FILTERING:       return "SPORK_3_INSTANTSEND_BLOCK_FILTERING";
+    case SPORK_5_INSTANTSEND_MAX_VALUE:             return "SPORK_5_INSTANTSEND_MAX_VALUE";
+    case SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT:    return "SPORK_8_MASTERNODE_PAYMENT_ENFORCEMENT";
+    case SPORK_9_SUPERBLOCKS_ENABLED:               return "SPORK_9_SUPERBLOCKS_ENABLED";
+    case SPORK_10_MASTERNODE_PAY_UPDATED_NODES:     return "SPORK_10_MASTERNODE_PAY_UPDATED_NODES";
+    case SPORK_12_RECONSIDER_BLOCKS:                return "SPORK_12_RECONSIDER_BLOCKS";
+    case SPORK_13_OLD_SUPERBLOCK_FLAG:              return "SPORK_13_OLD_SUPERBLOCK_FLAG";
+    case SPORK_14_REQUIRE_SENTINEL_FLAG:            return "SPORK_14_REQUIRE_SENTINEL_FLAG";
+    case SPORK_15_TPOS_ENABLED:                     return "SPORK_15_TPOS_ENABLED";
+    default:
+        LogPrint(BCLog::SPORK, "CSporkManager::GetSporkNameByID -- Unknown Spork ID %d\n", nSporkID);
+        return "Unknown";
     }
 }
 
@@ -233,12 +255,12 @@ bool CSporkMessage::Sign(std::string strSignKey)
         return false;
     }
 
-    if(!CMessageSigner::SignMessage(strMessage, vchSig, key)) {
+    if(!CMessageSigner::SignMessage(strMessage, vchSig, key, CPubKey::InputScriptType::SPENDP2PKH)) {
         LogPrintf("CSporkMessage::Sign -- SignMessage() failed\n");
         return false;
     }
 
-    if(!CMessageSigner::VerifyMessage(pubkey, vchSig, strMessage, strError)) {
+    if(!CMessageSigner::VerifyMessage(pubkey.GetID(), vchSig, strMessage, strError)) {
         LogPrintf("CSporkMessage::Sign -- VerifyMessage() failed, error: %s\n", strError);
         return false;
     }
@@ -253,16 +275,19 @@ bool CSporkMessage::CheckSignature()
     std::string strMessage = boost::lexical_cast<std::string>(nSporkID) + boost::lexical_cast<std::string>(nValue) + boost::lexical_cast<std::string>(nTimeSigned);
     CPubKey pubkey(ParseHex(Params().SporkPubKey()));
 
-    if(!CMessageSigner::VerifyMessage(pubkey, vchSig, strMessage, strError)) {
-        LogPrintf("CSporkMessage::CheckSignature -- VerifyMessage() failed, error: %s\n", strError);
+    if(!CMessageSigner::VerifyMessage(pubkey.GetID(), vchSig, strMessage, strError)) {
+        LogPrintf("%s failed, error: %s\n", __func__, strError);
         return false;
     }
 
     return true;
 }
 
-void CSporkMessage::Relay(CConnman& connman)
+void CSporkMessage::Relay(CConnman *connman)
 {
     CInv inv(MSG_SPORK, GetHash());
-    connman.RelayInv(inv);
+    connman->ForEachNode([&inv](CNode* pnode)
+    {
+        pnode->PushInventory(inv);
+    });
 }
